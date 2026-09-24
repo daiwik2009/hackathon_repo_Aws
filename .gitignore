@@ -2,3 +2,6 @@
 .env
 .venv
 .vscode
+__pycache__
+metadata.json
+temp.html
