@@ -31,16 +31,16 @@ def scan():
     action_plan = build_action_plan(evaluated)
 
     return jsonify({
-        "status": "success",
-        "page": evaluated.get("page", {}),
-        "security": {
-            "decision": evaluated.get("overall_decision"),
-            "risk_score": evaluated.get("highest_risk_score"),
-        },
-        "findings": evaluated.get("findings", []),
-        "actions": action_plan.get("actions", []),
-        "page_action": action_plan.get("page_action", {})
-    })
+    "status": "success",
+    "page": evaluated.get("page", {}),
+    "security": {
+        "decision": evaluated.get("overall_decision"),
+        "risk_score": evaluated.get("risk_score", 0),
+    },
+    "findings": evaluated.get("findings", []),
+    "actions": action_plan.get("actions", []),
+    "page_action": action_plan.get("page_action", {})
+})
 
 
 if __name__ == "__main__":
