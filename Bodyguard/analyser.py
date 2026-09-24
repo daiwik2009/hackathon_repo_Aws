@@ -1,3 +1,24 @@
+"""
+AI Bodyguard analyser.
+
+Responsibility:
+    Convert detector signals into risk scores and decisions.
+
+Pipeline:
+
+    scanner
+       ↓
+    detector
+       ↓
+    analyser
+       ↓
+    actions
+
+Detector finds evidence.
+Analyser interprets that evidence.
+Actions decides what can actually be executed.
+"""
+
 from __future__ import annotations
 
 import json
@@ -16,18 +37,19 @@ HIGH_RISK_SIGNALS = {
     "close_action_leads_to_payment",
 }
 
-
 MEDIUM_RISK_SIGNALS = {
     "download_action_leads_to_login",
     "close_action_leads_to_login",
     "continue_action_leads_to_payment",
-    "redirect_parameter",
-    "cross_domain_destination",
-
-    # Added for the corrected detector.py
     "javascript_navigation",
     "password_input",
     "payment_input",
+    "redirect_parameter",
+}
+
+# Suspicious context signals (NOT dangerous by themselves)
+LOW_RISK_SIGNALS = {
+    "cross_domain_destination",
 }
 
 
@@ -36,41 +58,61 @@ MEDIUM_RISK_SIGNALS = {
 # ============================================================
 
 SIGNAL_EXPLANATIONS = {
-    "download_action_leads_to_subscription":
-        "A download-related action appears to lead to a subscription or membership destination.",
+    "download_action_leads_to_subscription": (
+        "A download-related action appears to lead to a subscription or membership destination."
+    ),
+    "download_action_leads_to_payment": (
+        "A download-related action appears to lead to a payment or checkout destination."
+    ),
+    "close_action_leads_to_subscription": (
+        "A close or dismiss action appears to lead to a subscription or membership destination."
+    ),
+    "close_action_leads_to_payment": (
+        "A close or dismiss action appears to lead to a payment or checkout destination."
+    ),
+    "download_action_leads_to_login": (
+        "A download-related action appears to lead to a login destination."
+    ),
+    "close_action_leads_to_login": (
+        "A close or dismiss action appears to lead to a login destination."
+    ),
+    "continue_action_leads_to_payment": (
+        "A continue action appears to lead to a payment or checkout destination."
+    ),
+    "redirect_parameter": (
+        "The destination contains a parameter commonly associated with redirection."
+    ),
+    "cross_domain_destination": (
+        "The action points to a different domain from the current page."
+    ),
+    "javascript_navigation": (
+        "The element contains JavaScript capable of changing or opening navigation."
+    ),
+    "password_input": "The form requests password-related information.",
+    "payment_input": "The form contains controls associated with payment information.",
+}
 
-    "download_action_leads_to_payment":
-        "A download-related action appears to lead to a payment or checkout destination.",
 
-    "close_action_leads_to_subscription":
-        "A close or dismiss action appears to lead to a subscription or membership destination.",
+# ============================================================
+# SIGNAL WEIGHTS
+# ============================================================
 
-    "close_action_leads_to_payment":
-        "A close or dismiss action appears to lead to a payment or checkout destination.",
-
-    "download_action_leads_to_login":
-        "A download-related action appears to lead to a login destination.",
-
-    "close_action_leads_to_login":
-        "A close or dismiss action appears to lead to a login destination.",
-
-    "continue_action_leads_to_payment":
-        "A continue action appears to lead to a payment or checkout destination.",
-
-    "redirect_parameter":
-        "The destination contains parameters commonly associated with redirects.",
-
-    "cross_domain_destination":
-        "The action destination is on a different domain from the current page.",
-
-    "javascript_navigation":
-        "The action contains JavaScript navigation behavior.",
-
-    "password_input":
-        "The form contains a password input.",
-
-    "payment_input":
-        "The form contains an input associated with payment information.",
+SIGNAL_WEIGHTS = {
+    # High confidence intent mismatch
+    "download_action_leads_to_subscription": 50,
+    "download_action_leads_to_payment": 50,
+    "close_action_leads_to_subscription": 50,
+    "close_action_leads_to_payment": 50,
+    # Medium confidence
+    "download_action_leads_to_login": 30,
+    "close_action_leads_to_login": 30,
+    "continue_action_leads_to_payment": 30,
+    "javascript_navigation": 30,
+    "password_input": 30,
+    "payment_input": 30,
+    "redirect_parameter": 30,
+    # Context only
+    "cross_domain_destination": 10,
 }
 
 
@@ -79,30 +121,13 @@ SIGNAL_EXPLANATIONS = {
 # ============================================================
 
 def calculate_finding_risk(signals: List[str]) -> Dict[str, Any]:
-    """
-    Calculate the risk of one finding.
-
-    Detector provides evidence/signals.
-    Analyser is responsible for risk scoring and decisions.
-    """
-
-    score = 0
-
-    for signal in signals:
-        if signal in HIGH_RISK_SIGNALS:
-            score += 50
-
-        elif signal in MEDIUM_RISK_SIGNALS:
-            score += 30
-
+    score = sum(SIGNAL_WEIGHTS.get(signal, 0) for signal in set(signals))
     score = min(score, 100)
 
     if score >= 70:
         decision = "BLOCK"
-
     elif score >= 30:
         decision = "WARN"
-
     else:
         decision = "ALLOW"
 
@@ -117,22 +142,13 @@ def calculate_finding_risk(signals: List[str]) -> Dict[str, Any]:
 # ============================================================
 
 def build_reason(signals: List[str]) -> List[str]:
-    """
-    Convert detector signals into human-readable reasons.
-    """
-
     reasons = []
-
-    for signal in signals:
+    for signal in set(signals):
         explanation = SIGNAL_EXPLANATIONS.get(signal)
-
         if explanation:
             reasons.append(explanation)
         else:
-            reasons.append(
-                f"Detected security signal: {signal}"
-            )
-
+            reasons.append(f"Detected security signal: {signal}")
     return reasons
 
 
@@ -141,22 +157,15 @@ def build_reason(signals: List[str]) -> List[str]:
 # ============================================================
 
 def evaluate_finding(finding: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Evaluate one detector finding.
-    """
-
     signals = finding.get("signals", [])
-
     risk = calculate_finding_risk(signals)
 
     return {
         "element_type": finding.get("element_type"),
         "text": finding.get("text", ""),
         "destination": finding.get("destination"),
-
         "decision": risk["decision"],
         "risk_score": risk["risk_score"],
-
         "signals": signals,
         "reasons": build_reason(signals),
     }
@@ -167,58 +176,31 @@ def evaluate_finding(finding: Dict[str, Any]) -> Dict[str, Any]:
 # ============================================================
 
 def evaluate_page(analysis: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Evaluate all findings on a page.
-
-    Returns the final page-level security decision.
-    """
-
     findings = analysis.get("findings", [])
+    evaluated_findings = [evaluate_finding(finding) for finding in findings]
 
-    evaluated_findings = [
-        evaluate_finding(finding)
-        for finding in findings
-    ]
-
-    # Highest-risk findings first
+    # Sort highest-risk findings first
     evaluated_findings.sort(
         key=lambda item: item.get("risk_score", 0),
         reverse=True,
     )
 
-    # --------------------------------------------------------
-    # Determine overall page decision
-    # --------------------------------------------------------
-
-    if any(
-        finding["decision"] == "BLOCK"
-        for finding in evaluated_findings
-    ):
+    # PAGE DECISION
+    if any(finding["decision"] == "BLOCK" for finding in evaluated_findings):
         overall_decision = "BLOCK"
-
-    elif any(
-        finding["decision"] == "WARN"
-        for finding in evaluated_findings
-    ):
+    elif any(finding["decision"] == "WARN" for finding in evaluated_findings):
         overall_decision = "WARN"
-
     else:
         overall_decision = "ALLOW"
 
-    # Highest risk score on the page
     highest_risk = (
-        evaluated_findings[0]["risk_score"]
-        if evaluated_findings
-        else 0
+        evaluated_findings[0]["risk_score"] if evaluated_findings else 0
     )
 
     return {
         "page": analysis.get("page", {}),
-
         "overall_decision": overall_decision,
-
         "risk_score": highest_risk,
-
         "findings": evaluated_findings,
     }
 
@@ -228,32 +210,15 @@ def evaluate_page(analysis: Dict[str, Any]) -> Dict[str, Any]:
 # ============================================================
 
 def load_analysis(filename: str = "analysis.json") -> Dict[str, Any]:
-    """
-    Load detector output from JSON.
-
-    Mainly useful for CLI/debugging.
-    app.py should normally pass dictionaries directly.
-    """
-
     with open(filename, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
 def save_analyser_output(
-    result: Dict[str, Any],
-    filename: str = "analyser.json",
+    result: Dict[str, Any], filename: str = "analyser.json"
 ) -> None:
-    """
-    Save analyser output for debugging/export.
-    """
-
     with open(filename, "w", encoding="utf-8") as file:
-        json.dump(
-            result,
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
+        json.dump(result, file, indent=2, ensure_ascii=False)
 
 
 # ============================================================
@@ -261,40 +226,25 @@ def save_analyser_output(
 # ============================================================
 
 def main() -> None:
-    """
-    CLI usage:
+    input_file = sys.argv[1] if len(sys.argv) > 1 else "analysis.json"
+    output_file = sys.argv[2] if len(sys.argv) > 2 else "analyser.json"
 
-        python analyser.py analysis.json analyser.json
-    """
+    try:
+        analysis = load_analysis(input_file)
+        result = evaluate_page(analysis)
+        save_analyser_output(result, output_file)
 
-    input_file = (
-        sys.argv[1]
-        if len(sys.argv) > 1
-        else "analysis.json"
-    )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
 
-    output_file = (
-        sys.argv[2]
-        if len(sys.argv) > 2
-        else "analyser.json"
-    )
-
-    analysis = load_analysis(input_file)
-
-    result = evaluate_page(analysis)
-
-    save_analyser_output(
-        result,
-        output_file,
-    )
-
-    print(
-        json.dumps(
-            result,
-            indent=2,
-            ensure_ascii=False,
-        )
-    )
+    except FileNotFoundError:
+        print(f"File not found: {input_file}")
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print(f"Invalid JSON file: {input_file}")
+        sys.exit(1)
+    except Exception as error:
+        print(f"Analyser error: {error}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
