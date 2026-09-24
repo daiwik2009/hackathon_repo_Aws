@@ -2,10 +2,10 @@
 AI Bodyguard package.
 
 Pipeline:
-    scanner -> detector -> analyser -> actions
+    static.scanner -> detector -> analyser -> actions
 """
 
-from .scanner import scan_page
+from static.scanner import scan_page
 from .detector import analyze_scan
 from .analyser import evaluate_page
 from .actions import build_action_plan
@@ -18,4 +18,3 @@ __all__ = [
 ]
 
 __version__ = "0.1.0"
-
