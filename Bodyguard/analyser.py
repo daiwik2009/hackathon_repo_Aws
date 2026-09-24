@@ -207,11 +207,9 @@ def evaluate_page(analysis):
 def main():
 
     if len(sys.argv) != 2:
-
         print(
             "Usage: python analyser.py <analysis.json>"
         )
-
         sys.exit(1)
 
     filename = sys.argv[1]
@@ -226,9 +224,21 @@ def main():
 
             analysis = json.load(file)
 
-        result = evaluate_page(
-            analysis
-        )
+        result = evaluate_page(analysis)
+
+        # Save final analyser output
+        with open(
+            "analyser.json",
+            "w",
+            encoding="utf-8"
+        ) as file:
+
+            json.dump(
+                result,
+                file,
+                indent=2,
+                ensure_ascii=False
+            )
 
         print(
             json.dumps(
@@ -237,6 +247,8 @@ def main():
                 ensure_ascii=False
             )
         )
+
+        print("\nAnalyser output saved to analyser.json")
 
     except FileNotFoundError:
 
@@ -257,3 +269,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
