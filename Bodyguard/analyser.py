@@ -93,7 +93,7 @@ def calculate_finding_risk(signals: List[str]) -> Dict[str, Any]:
             score += 50
 
         elif signal in MEDIUM_RISK_SIGNALS:
-            score += 20
+            score += 30
 
     score = min(score, 100)
 
