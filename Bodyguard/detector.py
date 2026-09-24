@@ -1,18 +1,43 @@
-import sys
+"""
+AI Bodyguard detector.
+
+Responsibility:
+    Detect suspicious signals from scanner output.
+
+Input:
+    scan_result dictionary produced by scanner.py
+
+Output:
+    analysis dictionary containing:
+        - page
+        - findings
+
+The detector identifies evidence/signals.
+Final risk scoring and ALLOW/WARN/BLOCK decisions
+are handled by analyser.py.
+"""
+
+from __future__ import annotations
+
 import json
-import re
-from urllib.parse import urlparse, parse_qs
+import sys
+from urllib.parse import parse_qs, urlparse
 
 
-# Words that describe common user intentions.
+# ---------------------------------------------------------------------------
+# INTENT KEYWORDS
+# ---------------------------------------------------------------------------
+
 INTENT_KEYWORDS = {
     "download": [
         "download",
         "get file",
         "save file",
+        "save",
         "export",
         "pdf",
         "document",
+        "attachment",
     ],
 
     "close": [
@@ -55,7 +80,10 @@ INTENT_KEYWORDS = {
 }
 
 
-# Destination words that can indicate a different action.
+# ---------------------------------------------------------------------------
+# DESTINATION KEYWORDS
+# ---------------------------------------------------------------------------
+
 DESTINATION_KEYWORDS = {
     "subscription": [
         "subscribe",
@@ -106,19 +134,26 @@ DESTINATION_KEYWORDS = {
 }
 
 
-def normalize(text):
-    """Normalize text for comparison."""
+# ---------------------------------------------------------------------------
+# NORMALIZATION
+# ---------------------------------------------------------------------------
+
+def normalize(text: str | None) -> str:
+    """Normalize text for keyword comparison."""
 
     if not text:
         return ""
 
-    return " ".join(text.lower().split())
+    return " ".join(str(text).lower().split())
 
 
-def classify_text(text):
+# ---------------------------------------------------------------------------
+# TEXT CLASSIFICATION
+# ---------------------------------------------------------------------------
+
+def classify_text(text: str | None) -> list[str]:
     """
-    Determine what a piece of text appears to be asking
-    the user/agent to do.
+    Determine what action a visible element appears to represent.
     """
 
     text = normalize(text)
@@ -133,10 +168,14 @@ def classify_text(text):
                 detected.append(intent)
                 break
 
-    return list(set(detected))
+    return sorted(set(detected))
 
 
-def classify_destination(url):
+# ---------------------------------------------------------------------------
+# DESTINATION CLASSIFICATION
+# ---------------------------------------------------------------------------
+
+def classify_destination(url: str | None) -> list[str]:
     """
     Determine what a destination URL appears to represent.
     """
@@ -156,11 +195,15 @@ def classify_destination(url):
                 detected.append(destination_type)
                 break
 
-    return list(set(detected))
+    return sorted(set(detected))
 
 
-def get_domain(url):
-    """Extract hostname from URL."""
+# ---------------------------------------------------------------------------
+# DOMAIN
+# ---------------------------------------------------------------------------
+
+def get_domain(url: str | None) -> str | None:
+    """Extract hostname from a URL."""
 
     if not url:
         return None
@@ -171,13 +214,16 @@ def get_domain(url):
         return None
 
 
-def has_suspicious_redirect_parameters(url):
-    """
-    Look for URL parameters commonly associated with
-    redirects.
+# ---------------------------------------------------------------------------
+# REDIRECT PARAMETERS
+# ---------------------------------------------------------------------------
 
-    This is NOT proof of malicious behavior.
-    It is simply a useful signal.
+def has_suspicious_redirect_parameters(url: str | None) -> bool:
+    """
+    Detect URL parameters commonly associated with redirects.
+
+    This is only a signal.
+    It does not prove malicious behaviour.
     """
 
     if not url:
@@ -185,6 +231,7 @@ def has_suspicious_redirect_parameters(url):
 
     try:
         parsed = urlparse(url)
+
         params = parse_qs(parsed.query)
 
         redirect_parameters = {
@@ -210,10 +257,17 @@ def has_suspicious_redirect_parameters(url):
         return False
 
 
-def compare_intent_to_destination(text, destination):
+# ---------------------------------------------------------------------------
+# INTENT → DESTINATION MISMATCH
+# ---------------------------------------------------------------------------
+
+def compare_intent_to_destination(
+    text: str | None,
+    destination: str | None,
+) -> list[str]:
     """
-    Compare what the element says with what its destination
-    appears to represent.
+    Compare what an element appears to promise with
+    what its destination appears to do.
     """
 
     text_intents = classify_text(text)
@@ -221,8 +275,10 @@ def compare_intent_to_destination(text, destination):
 
     mismatches = []
 
-    # Example:
-    # "Download" -> /subscribe
+    # -------------------------------------------------------
+    # Download
+    # -------------------------------------------------------
+
     if "download" in text_intents:
 
         if "subscription" in destination_types:
@@ -240,7 +296,10 @@ def compare_intent_to_destination(text, destination):
                 "download_action_leads_to_login"
             )
 
-    # "Close" shouldn't normally lead to payment/subscription.
+    # -------------------------------------------------------
+    # Close / dismiss
+    # -------------------------------------------------------
+
     if "close" in text_intents:
 
         if "subscription" in destination_types:
@@ -258,8 +317,10 @@ def compare_intent_to_destination(text, destination):
                 "close_action_leads_to_login"
             )
 
-    # "Continue" is ambiguous, so we don't automatically
-    # classify it as malicious.
+    # -------------------------------------------------------
+    # Continue
+    # -------------------------------------------------------
+
     if "continue" in text_intents:
 
         if "payment" in destination_types:
@@ -267,56 +328,16 @@ def compare_intent_to_destination(text, destination):
                 "continue_action_leads_to_payment"
             )
 
-    return mismatches
+    return sorted(set(mismatches))
 
 
-def calculate_risk(signals):
+# ---------------------------------------------------------------------------
+# LINK DETECTOR
+# ---------------------------------------------------------------------------
+
+def detect_link(link: dict, page_url: str) -> dict:
     """
-    Convert evidence into a simple risk level.
-
-    This is intentionally transparent and rule-based.
-    """
-
-    score = 0
-
-    for signal in signals:
-
-        if signal in {
-            "download_action_leads_to_subscription",
-            "download_action_leads_to_payment",
-            "close_action_leads_to_subscription",
-            "close_action_leads_to_payment",
-        }:
-            score += 50
-
-        elif signal in {
-            "download_action_leads_to_login",
-            "close_action_leads_to_login",
-            "continue_action_leads_to_payment",
-        }:
-            score += 30
-
-        elif signal == "cross_domain_destination":
-            score += 20
-
-        elif signal == "redirect_parameter":
-            score += 15
-
-    score = min(score, 100)
-
-    if score >= 70:
-        level = "HIGH"
-    elif score >= 30:
-        level = "MEDIUM"
-    else:
-        level = "LOW"
-
-    return score, level
-
-
-def analyze_link(link, page_url):
-    """
-    Analyze a single link.
+    Detect suspicious signals in a scanned link.
     """
 
     text = link.get("text", "")
@@ -327,44 +348,61 @@ def analyze_link(link, page_url):
     page_domain = get_domain(page_url)
     destination_domain = get_domain(destination)
 
-    # Check for cross-domain navigation.
+    # -------------------------------------------------------
+    # Cross-domain navigation
+    # -------------------------------------------------------
+
     if (
         page_domain
         and destination_domain
         and page_domain != destination_domain
     ):
-        signals.append("cross_domain_destination")
+        signals.append(
+            "cross_domain_destination"
+        )
 
-    # Check for redirect-style parameters.
+    # -------------------------------------------------------
+    # Redirect parameter
+    # -------------------------------------------------------
+
     if has_suspicious_redirect_parameters(destination):
-        signals.append("redirect_parameter")
+        signals.append(
+            "redirect_parameter"
+        )
 
-    # Compare visible intent with destination.
+    # -------------------------------------------------------
+    # Intent mismatch
+    # -------------------------------------------------------
+
     signals.extend(
         compare_intent_to_destination(
             text,
-            destination
+            destination,
         )
     )
 
-    score, level = calculate_risk(signals)
+    signals = sorted(set(signals))
 
     return {
         "element_type": "link",
         "text": text,
         "destination": destination,
-        "risk_score": score,
-        "risk_level": level,
         "signals": signals,
     }
 
 
-def analyze_button(button, page_url):
-    """
-    Analyze a button.
+# ---------------------------------------------------------------------------
+# BUTTON DETECTOR
+# ---------------------------------------------------------------------------
 
-    Buttons often don't have a direct href, so we primarily
-    inspect their JavaScript/form destination information.
+def detect_button(button: dict, page_url: str) -> dict:
+    """
+    Detect suspicious signals in a scanned button.
+
+    Buttons may not have a direct URL, so we inspect:
+        - formaction
+        - href
+        - onclick
     """
 
     text = button.get("text", "")
@@ -375,7 +413,13 @@ def analyze_button(button, page_url):
         or ""
     )
 
+    onclick = button.get("onclick") or ""
+
     signals = []
+
+    # -------------------------------------------------------
+    # Direct destination
+    # -------------------------------------------------------
 
     if destination:
 
@@ -387,114 +431,379 @@ def analyze_button(button, page_url):
             and destination_domain
             and page_domain != destination_domain
         ):
-            signals.append("cross_domain_destination")
+            signals.append(
+                "cross_domain_destination"
+            )
 
-        if has_suspicious_redirect_parameters(destination):
-            signals.append("redirect_parameter")
+        if has_suspicious_redirect_parameters(
+            destination
+        ):
+            signals.append(
+                "redirect_parameter"
+            )
 
         signals.extend(
             compare_intent_to_destination(
                 text,
-                destination
+                destination,
             )
         )
 
-    score, level = calculate_risk(signals)
+    # -------------------------------------------------------
+    # Inline JavaScript
+    #
+    # We don't execute JavaScript.
+    # We only inspect it for obvious URL/action clues.
+    # -------------------------------------------------------
+
+    if onclick:
+
+        onclick_lower = normalize(onclick)
+
+        # Obvious redirect/navigation indicators.
+        javascript_navigation_keywords = [
+            "window.location",
+            "location.href",
+            "location.assign",
+            "location.replace",
+            "window.open",
+        ]
+
+        if any(
+            keyword in onclick_lower
+            for keyword in javascript_navigation_keywords
+        ):
+            signals.append(
+                "javascript_navigation"
+            )
+
+        # Inspect the JavaScript text itself for
+        # destination intent.
+        js_destination_types = classify_destination(
+            onclick_lower
+        )
+
+        if "subscription" in js_destination_types:
+
+            if "download" in classify_text(text):
+                signals.append(
+                    "download_action_leads_to_subscription"
+                )
+
+            if "close" in classify_text(text):
+                signals.append(
+                    "close_action_leads_to_subscription"
+                )
+
+        if "payment" in js_destination_types:
+
+            if "download" in classify_text(text):
+                signals.append(
+                    "download_action_leads_to_payment"
+                )
+
+            if "close" in classify_text(text):
+                signals.append(
+                    "close_action_leads_to_payment"
+                )
+
+            if "continue" in classify_text(text):
+                signals.append(
+                    "continue_action_leads_to_payment"
+                )
+
+        if "login" in js_destination_types:
+
+            if "download" in classify_text(text):
+                signals.append(
+                    "download_action_leads_to_login"
+                )
+
+            if "close" in classify_text(text):
+                signals.append(
+                    "close_action_leads_to_login"
+                )
+
+    signals = sorted(set(signals))
 
     return {
         "element_type": "button",
         "text": text,
         "destination": destination,
-        "onclick": button.get("onclick"),
-        "risk_score": score,
-        "risk_level": level,
+        "onclick": onclick,
         "signals": signals,
     }
 
 
-def analyze_scan(scan_result):
+# ---------------------------------------------------------------------------
+# FORM DETECTOR
+# ---------------------------------------------------------------------------
+
+def detect_form(form: dict, page_url: str) -> dict:
+    """
+    Detect suspicious signals in a form.
+
+    Forms are included because the scanner already extracts them.
+    """
+
+    action = form.get("action", "")
+    method = str(
+        form.get("method", "GET")
+    ).upper()
+
+    signals = []
+
+    page_domain = get_domain(page_url)
+    destination_domain = get_domain(action)
+
+    # -------------------------------------------------------
+    # Cross-domain form submission
+    # -------------------------------------------------------
+
+    if (
+        page_domain
+        and destination_domain
+        and page_domain != destination_domain
+    ):
+        signals.append(
+            "cross_domain_destination"
+        )
+
+    # -------------------------------------------------------
+    # Redirect parameters
+    # -------------------------------------------------------
+
+    if has_suspicious_redirect_parameters(action):
+        signals.append(
+            "redirect_parameter"
+        )
+
+    # -------------------------------------------------------
+    # Identify sensitive-looking controls
+    # -------------------------------------------------------
+
+    input_names = []
+
+    for control in form.get("inputs", []):
+
+        name = normalize(
+            control.get("name")
+        )
+
+        input_type = normalize(
+            control.get("type")
+        )
+
+        placeholder = normalize(
+            control.get("placeholder")
+        )
+
+        input_names.extend([
+            name,
+            input_type,
+            placeholder,
+        ])
+
+    combined_input_text = " ".join(
+        value
+        for value in input_names
+        if value
+    )
+
+    if any(
+        keyword in combined_input_text
+        for keyword in [
+            "password",
+            "passwd",
+        ]
+    ):
+        signals.append(
+            "password_input"
+        )
+
+    if any(
+        keyword in combined_input_text
+        for keyword in [
+            "card",
+            "credit",
+            "debit",
+            "cvv",
+            "cvc",
+            "billing",
+        ]
+    ):
+        signals.append(
+            "payment_input"
+        )
+
+    return {
+        "element_type": "form",
+        "text": "",
+        "destination": action,
+        "method": method,
+        "signals": sorted(set(signals)),
+    }
+
+
+# ---------------------------------------------------------------------------
+# COMPLETE SCAN ANALYSIS
+# ---------------------------------------------------------------------------
+
+def analyze_scan(scan_result: dict) -> dict:
     """
     Analyze the complete scanner output.
+
+    IMPORTANT:
+        This function detects evidence only.
+
+        It does NOT assign:
+            - risk score
+            - risk level
+            - ALLOW
+            - WARN
+            - BLOCK
+
+        Those decisions belong to analyser.py.
     """
 
-    page = scan_result.get("page", {})
+    page = scan_result.get(
+        "page",
+        {}
+    )
 
-    page_url = page.get(
-        "final_url",
-        page.get("requested_url", "")
+    page_url = (
+        page.get("final_url")
+        or page.get("requested_url")
+        or ""
     )
 
     findings = []
 
-    for link in scan_result.get("links", []):
+    # -------------------------------------------------------
+    # LINKS
+    # -------------------------------------------------------
 
-        result = analyze_link(
-            link,
-            page_url
+    for link in scan_result.get(
+        "links",
+        []
+    ):
+
+        findings.append(
+            detect_link(
+                link,
+                page_url,
+            )
         )
 
-        # Keep all findings for now.
-        findings.append(result)
+    # -------------------------------------------------------
+    # BUTTONS
+    # -------------------------------------------------------
 
-    for button in scan_result.get("buttons", []):
+    for button in scan_result.get(
+        "buttons",
+        []
+    ):
 
-        result = analyze_button(
-            button,
-            page_url
+        findings.append(
+            detect_button(
+                button,
+                page_url,
+            )
         )
 
-        findings.append(result)
+    # -------------------------------------------------------
+    # FORMS
+    # -------------------------------------------------------
 
-    # Highest-risk finding first.
-    findings.sort(
-        key=lambda item: item["risk_score"],
-        reverse=True
-    )
+    for form in scan_result.get(
+        "forms",
+        []
+    ):
+
+        findings.append(
+            detect_form(
+                form,
+                page_url,
+            )
+        )
 
     return {
         "page": page,
+
         "findings": findings,
     }
 
 
-def main():
+# ---------------------------------------------------------------------------
+# COMMAND-LINE INTERFACE
+# ---------------------------------------------------------------------------
+
+def main() -> None:
 
     if len(sys.argv) != 2:
+
         print(
-            "Usage: python redirect_detector.py <scan.json>"
+            "Usage: python detector.py <scan.json>"
         )
+
         sys.exit(1)
 
     filename = sys.argv[1]
 
     try:
 
+        # ---------------------------------------------------
+        # READ SCANNER OUTPUT
+        # ---------------------------------------------------
+
         with open(
             filename,
             "r",
-            encoding="utf-8"
+            encoding="utf-8",
         ) as file:
 
             scan_result = json.load(file)
 
-        analysis = analyze_scan(scan_result)
+        # ---------------------------------------------------
+        # DETECT SIGNALS
+        # ---------------------------------------------------
 
-        # Save the analysis to analysis.json
+        analysis = analyze_scan(
+            scan_result
+        )
+
+        # ---------------------------------------------------
+        # WRITE ANALYSIS
+        # ---------------------------------------------------
+
         with open(
             "analysis.json",
             "w",
-            encoding="utf-8"
+            encoding="utf-8",
         ) as file:
 
             json.dump(
                 analysis,
                 file,
                 indent=2,
-                ensure_ascii=False
+                ensure_ascii=False,
             )
 
-        print("Analysis completed successfully.")
-        print("Output saved to: analysis.json")
+        # ---------------------------------------------------
+        # DISPLAY
+        # ---------------------------------------------------
+
+        print(
+            json.dumps(
+                analysis,
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+
+        print(
+            "\nAnalysis saved to: analysis.json"
+        )
 
     except FileNotFoundError:
 
@@ -507,12 +816,23 @@ def main():
     except json.JSONDecodeError:
 
         print(
-            "Invalid JSON file."
+            f"Invalid JSON file: {filename}"
+        )
+
+        sys.exit(1)
+
+    except Exception as error:
+
+        print(
+            f"Detector error: {error}"
         )
 
         sys.exit(1)
 
 
+# ---------------------------------------------------------------------------
+# ENTRY POINT
+# ---------------------------------------------------------------------------
+
 if __name__ == "__main__":
     main()
-

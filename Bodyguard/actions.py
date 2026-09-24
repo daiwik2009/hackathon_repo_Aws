@@ -2,16 +2,13 @@
 AI Bodyguard action layer.
 
 Input:
-    analyser.json
+    analyser output dictionary
 
 Output:
-    actions.json
+    action plan dictionary
 
 Pipeline:
-    scanner.py -> scan.json
-    detector.py -> analysis.json
-    analyser.py -> analyser.json
-    actions.py -> actions.json
+    scanner.py -> detector.py -> analyser.py -> actions.py
 """
 
 from __future__ import annotations
@@ -23,11 +20,19 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 
+# ============================================================
+# ACTION TYPES
+# ============================================================
+
 class ActionType(str, Enum):
     ALLOW = "ALLOW"
     WARN = "WARN"
     BLOCK = "BLOCK"
 
+
+# ============================================================
+# ACTION MODEL
+# ============================================================
 
 @dataclass
 class Action:
@@ -46,11 +51,25 @@ class Action:
         return data
 
 
-class ActionEngine:
-    """Convert analyser.json decisions into browser actions."""
+# ============================================================
+# ACTION ENGINE
+# ============================================================
 
-    def __init__(self, warn_requires_confirmation: bool = True):
-        self.warn_requires_confirmation = warn_requires_confirmation
+class ActionEngine:
+    """
+    Convert analyser output into an action plan.
+
+    This module does NOT calculate risk.
+    Risk and ALLOW/WARN/BLOCK decisions come from analyser.py.
+    """
+
+    def __init__(
+        self,
+        warn_requires_confirmation: bool = True
+    ):
+        self.warn_requires_confirmation = (
+            warn_requires_confirmation
+        )
 
     def evaluate(
         self,
@@ -73,6 +92,10 @@ class ActionEngine:
             self._finding_to_action(finding)
             for finding in findings
         ]
+
+        # ----------------------------------------------------
+        # PAGE-LEVEL ACTION
+        # ----------------------------------------------------
 
         if overall_decision == ActionType.BLOCK.value:
 
@@ -106,8 +129,9 @@ class ActionEngine:
 
             "overall_decision": overall_decision,
 
-            "highest_risk_score": analysis.get(
-                "highest_risk_score",
+            # Correct field name from analyser.py
+            "risk_score": analysis.get(
+                "risk_score",
                 0
             ),
 
@@ -124,6 +148,10 @@ class ActionEngine:
 
             "actions": actions
         }
+
+    # ========================================================
+    # FINDING -> ACTION
+    # ========================================================
 
     def _finding_to_action(
         self,
@@ -201,6 +229,10 @@ class ActionEngine:
 
         return result.to_dict()
 
+    # ========================================================
+    # REASON
+    # ========================================================
+
     @staticmethod
     def _get_reason(
         finding: Dict[str, Any],
@@ -212,9 +244,16 @@ class ActionEngine:
         ) or []
 
         if reasons:
-            return " ".join(reasons)
+            return " ".join(
+                str(reason)
+                for reason in reasons
+            )
 
         return default
+
+    # ========================================================
+    # EXECUTION CHECK
+    # ========================================================
 
     def can_execute(
         self,
@@ -232,7 +271,7 @@ class ActionEngine:
         if action_type == ActionType.BLOCK.value:
             return False
 
-        # WARN requires user confirmation.
+        # WARN requires confirmation.
         if (
             action_type == ActionType.WARN.value
             and self.warn_requires_confirmation
@@ -242,6 +281,10 @@ class ActionEngine:
         # ALLOW can be executed.
         return True
 
+
+# ============================================================
+# PUBLIC API
+# ============================================================
 
 def build_action_plan(
     analysis: Dict[str, Any],
@@ -259,11 +302,15 @@ def build_action_plan(
     )
 
 
+# ============================================================
+# JSON HELPERS
+# ============================================================
+
 def load_analyser_output(
     filename: str = "analyser.json"
 ) -> Dict[str, Any]:
 
-    """Load JSON produced by analyser.py."""
+    """Load analyser output from JSON."""
 
     with open(
         filename,
@@ -279,7 +326,7 @@ def save_action_plan(
     filename: str = "actions.json"
 ) -> None:
 
-    """Save JSON produced by actions.py."""
+    """Save action plan to JSON."""
 
     with open(
         filename,
@@ -295,6 +342,10 @@ def save_action_plan(
         )
 
 
+# ============================================================
+# CLI
+# ============================================================
+
 def main() -> None:
 
     if len(sys.argv) not in {1, 2, 3}:
@@ -306,16 +357,12 @@ def main() -> None:
 
         sys.exit(1)
 
-    # Default input:
-    # analyser.json
     input_file = (
         sys.argv[1]
         if len(sys.argv) >= 2
         else "analyser.json"
     )
 
-    # Default output:
-    # actions.json
     output_file = (
         sys.argv[2]
         if len(sys.argv) >= 3
@@ -324,35 +371,23 @@ def main() -> None:
 
     try:
 
-        # --------------------------------
-        # 1. READ analyser.json
-        # --------------------------------
-
+        # 1. Load analyser output
         analysis = load_analyser_output(
             input_file
         )
 
-        # --------------------------------
-        # 2. BUILD ACTION PLAN
-        # --------------------------------
-
+        # 2. Build action plan
         action_plan = build_action_plan(
             analysis
         )
 
-        # --------------------------------
-        # 3. WRITE actions.json
-        # --------------------------------
-
+        # 3. Save action plan
         save_action_plan(
             action_plan,
             output_file
         )
 
-        # --------------------------------
-        # 4. DISPLAY RESULT
-        # --------------------------------
-
+        # 4. Display result
         print(
             json.dumps(
                 action_plan,
