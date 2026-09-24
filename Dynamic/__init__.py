@@ -17,3 +17,5 @@ def scan(url):
     result = extract_page()
 
     return result
+
+#Dynamic init
