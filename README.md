@@ -1,32 +1,67 @@
-AI Bodyguard
+# AI Bodyguard — Vanguard
 
-AI Bodyguard is a security middleware for AI web agents. It places a security layer between an AI explorer and the web.
+AI Bodyguard is a security middleware for AI web agents. It places a defensive security layer between an AI explorer and the web.
+
+The goal is to inspect web destinations before an AI agent accesses or interacts with them and return a structured security decision.
+
+## Architecture
 
 The current pipeline is:
 
+```text
+User
+  ↓
+OpenAI Explorer
+  ↓
+ask_bodyguard(url)
+  ↓
+app.py — Flask API
+  ↓
+Static Scanner
+  ↓
+Detector
+  ↓
+Analyser
+  ↓
+Actions
+  ↓
+Security Decision
+  ↓
 Explorer
-   |
-   | POST /scan
-   v
-app.py (Flask API)
-   |
-   v
-scanner.py
-   |
-   v
-detector.py
-   |
-   v
-analyser.py
-   |
-   v
-actions.py
-   |
-   v
-Security decision
+```
 
-Project structure
+For pages containing JavaScript-related activity, the API can additionally use the Dynamic scanner:
 
+```text
+                    ┌─────────────────┐
+                    │   Static Scan   │
+                    │ requests + BS4  │
+                    └────────┬────────┘
+                             │
+                    scripts / JS handlers?
+                       ┌─────┴─────┐
+                       │           │
+                      No          Yes
+                       │           │
+                       │    ┌──────▼──────┐
+                       │    │ Dynamic Scan│
+                       │    │  Playwright │
+                       │    └──────┬──────┘
+                       │           │
+                       └─────┬─────┘
+                             ↓
+                         Detector
+                             ↓
+                          Analyser
+                             ↓
+                           Actions
+                             ↓
+                     Security Decision
+```
+
+## Project Structure
+
+```text
 project/
 ├── app.py
 ├── requirements.txt
@@ -34,123 +69,203 @@ project/
 │
 ├── Bodyguard/
 │   ├── __init__.py
-│   ├── scanner.py
 │   ├── detector.py
 │   ├── analyser.py
 │   └── actions.py
 │
+├── Static/
+│   ├── __init__.py
+│   └── scanner.py
+│
+├── Dynamic/
+│   ├── __init__.py
+│   ├── fetcher.py
+│   ├── prettifier.py
+│   └── extractor.py
+│
 └── Explorer/
     └── explorer1.py
+```
 
-Bodyguard/__init__.py exposes the four pipeline stages so that app.py can import them directly.
+`Bodyguard/__init__.py` exposes the detector, analyser, and action stages so that `app.py` can run the security pipeline.
 
-How it works
+---
 
-1. Scanner
+# How It Works
 
-scanner.py fetches a URL using requests and parses the returned HTML with BeautifulSoup.
+## 1. Static Scanner
 
-It extracts:
+The Static scanner uses `requests` and `BeautifulSoup` to retrieve and inspect a webpage.
 
-page metadata
+It extracts information such as:
 
-links
+* Page metadata
+* Links
+* Buttons
+* Forms and form controls
+* Inline JavaScript event handlers
+* Script information
+* Destinations and URLs
 
-buttons and button-like elements
+The Static scanner is fast and is used as the first inspection layer.
 
-forms and their controls
+---
 
-inline JavaScript event handlers
+## 2. Dynamic Scanner
 
-script information
+The Dynamic scanner is used when the static result contains JavaScript-related activity such as scripts or JavaScript event handlers.
 
-The scanner does not execute JavaScript or interact with the page dynamically.
+It uses:
 
-2. Detector
+* Playwright
+* Chromium
+* HTML extraction
+* Page metadata extraction
 
-detector.py receives the scanner dictionary and looks for security signals.
+The Dynamic scanner can load a page in a real browser environment rather than relying only on the original HTTP response.
+
+Its pipeline is:
+
+```text
+URL
+ ↓
+Playwright / Chromium
+ ↓
+Rendered HTML
+ ↓
+Prettifier
+ ↓
+Extractor
+ ↓
+Structured page data
+```
+
+The Dynamic scanner is integrated into `app.py` and is selected when the static scan indicates that dynamic inspection may be useful.
+
+---
+
+# 3. Detector
+
+`detector.py` receives the structured scanner output and searches for security signals.
 
 Examples include:
 
-suspicious intent/destination mismatches
+* Suspicious intent/destination mismatches
+* Cross-domain destinations
+* Suspicious redirect parameters
+* JavaScript navigation
+* Password inputs
+* Payment-related inputs
+* Suspicious download destinations
+* Login-related destinations
 
-cross-domain destinations
+The detector provides evidence and signals. It does not make the final security decision.
 
-suspicious redirect parameters
+---
 
-JavaScript navigation
+# 4. Analyser
 
-password inputs
+`analyser.py` converts detector signals into risk scores and security decisions.
 
-payment-related inputs
+### Risk thresholds
 
-The detector provides evidence only. It does not decide whether a page should be allowed or blocked.
+```text
+0–29    → ALLOW
+30–69   → WARN
+70–100  → BLOCK
+```
 
-3. Analyser
+### Signal weights
 
-analyser.py converts detector signals into risk scores and decisions.
+High-risk signals contribute:
 
-Current decision thresholds:
+```text
++50 points
+```
 
-0–29   -> ALLOW
-30–69  -> WARN
-70–100 -> BLOCK
+Medium-risk signals contribute:
 
-High-risk signals contribute 50 points and medium-risk signals contribute 20 points. The score is capped at 100.
+```text
++30 points
+```
+
+The final finding score is capped at `100`.
 
 At page level:
 
-any BLOCK finding -> BLOCK
+```text
+Any BLOCK finding
+        ↓
+      BLOCK
 
-otherwise any WARN finding -> WARN
+Otherwise, any WARN finding
+        ↓
+       WARN
 
-otherwise -> ALLOW
+Otherwise
+        ↓
+      ALLOW
+```
 
-4. Action engine
+This allows multiple independent security signals to increase the overall risk score.
 
-actions.py converts the analyser result into an action plan.
+---
 
-It produces:
+# 5. Action Engine
 
-page-level action
+`actions.py` converts the analyser output into an action plan.
 
-individual actions for findings
+It produces information such as:
 
-reasons
+* Page-level action
+* Individual finding actions
+* Reasons
+* Risk scores
+* Destinations
+* Detected signals
+* Confirmation requirements
+* Whether an action can be executed
 
-risk scores
+The current action engine does not automatically execute BLOCK actions.
 
-destinations
+WARN actions require confirmation under the default configuration.
 
-signals
+---
 
-confirmation requirements
+# Flask API
 
-BLOCK actions are never automatically executable by the current action engine. WARN actions require confirmation when the default configuration is used.
+`app.py` provides the main Bodyguard API.
 
-Flask API
+Start the server with:
 
-Start the Bodyguard server:
-
+```bash
 python app.py
+```
 
 The API runs on:
 
+```text
 http://127.0.0.1:5000
+```
 
-Scan endpoint
+## Scan Endpoint
 
+```text
 POST /scan
 Content-Type: application/json
+```
 
 Example request:
 
+```json
 {
   "url": "https://example.com"
 }
+```
 
-Example with Python:
+Example using Python:
 
+```python
 import requests
 
 response = requests.post(
@@ -159,11 +274,14 @@ response = requests.post(
 )
 
 print(response.json())
+```
 
-The response contains:
+The API returns structured security information, including:
 
+```json
 {
   "status": "success",
+  "scan_mode": "static",
   "page": {},
   "security": {
     "decision": "ALLOW",
@@ -173,132 +291,311 @@ The response contains:
   "actions": [],
   "page_action": {}
 }
+```
 
-Explorer
+When dynamic inspection is required, `scan_mode` can indicate the Dynamic path.
 
-Explorer/explorer1.py is the AI-facing component.
+---
 
-It uses the OpenAI API and exposes a tool named ask_bodyguard. Before the explorer accesses a URL, the model is instructed to send that URL to the Bodyguard /scan endpoint.
+# Explorer
 
-The explorer therefore follows this conceptual flow:
+`Explorer/explorer1.py` is the AI-facing component.
 
-User query
-   ↓
+It uses the OpenAI API and exposes a tool named:
+
+```text
+ask_bodyguard
+```
+
+Before accessing a website, Explorer is instructed to send the URL to the Bodyguard `/scan` endpoint.
+
+The conceptual flow is:
+
+```text
+User Query
+    ↓
 OpenAI Explorer
-   ↓
+    ↓
 ask_bodyguard(url)
-   ↓
+    ↓
 Bodyguard /scan
-   ↓
-Scanner → Detector → Analyser → Actions
-   ↓
-Security result
-   ↓
-Explorer decides how to continue
+    ↓
+Static Scanner
+    ↓
+Dynamic Scanner when required
+    ↓
+Detector
+    ↓
+Analyser
+    ↓
+Actions
+    ↓
+Security Result
+    ↓
+Explorer continues according to the result
+```
 
-Environment variables
+Explorer is instructed to respect the Bodyguard decision:
 
-Create a .env file for the Explorer:
+```text
+ALLOW → action may proceed
 
+WARN → action requires caution/confirmation
+
+BLOCK → action must not proceed
+```
+
+Explorer must not bypass a BLOCK decision.
+
+---
+
+# Environment Variables
+
+Create a `.env` file for Explorer:
+
+```env
 OPENAI_API_KEY=your_api_key_here
 BODYGUARD_URL=http://127.0.0.1:5000
+```
 
-Do not commit .env or your API key to Git.
+Do not commit `.env` or your API key to Git.
 
-Installation
+---
 
-Create and activate a virtual environment:
+# Installation
 
-python -m venv .venv
-source .venv/bin/activate
+## 1. Create a virtual environment
 
-On Windows:
+### Windows
 
+```bash
 python -m venv .venv
 .venv\Scripts\activate
+```
 
-Install dependencies:
+### Linux / macOS
 
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+## 2. Install Python dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-Running the system
+The requirements include:
 
-Terminal 1 — Bodyguard
+```text
+Flask
+requests
+beautifulsoup4
+python-dotenv
+openai
+playwright
+```
+
+## 3. Install Chromium for Playwright
+
+The Dynamic scanner requires a Playwright browser.
+
+Run:
+
+```bash
+python -m playwright install chromium
+```
+
+This step is required even after installing the Python `playwright` package.
+
+---
+
+# Running the System
+
+## Terminal 1 — Bodyguard
 
 From the project root:
 
+```bash
 python app.py
+```
 
-Terminal 2 — Explorer
+The Flask security API will start on:
 
-Run the Explorer from its directory or with the appropriate module path:
+```text
+http://127.0.0.1:5000
+```
 
+## Terminal 2 — Explorer
+
+Run:
+
+```bash
 python Explorer/explorer1.py
+```
 
-Then enter a query when prompted.
+Then enter the requested query.
 
-CLI debugging
+Explorer will communicate with the Bodyguard API before attempting to access a web destination.
 
-Each pipeline component also supports direct JSON-based testing.
+---
 
-Scanner:
+# Testing the API
 
-python Bodyguard/scanner.py https://example.com
+You can test the Bodyguard directly without Explorer.
 
-Detector:
+Example:
 
-python Bodyguard/detector.py scan.json
+```python
+import requests
 
-Analyser:
+url = "https://example.com"
 
+response = requests.post(
+    "http://127.0.0.1:5000/scan",
+    json={"url": url}
+)
+
+print(response.json())
+```
+
+For development, use controlled test pages to verify:
+
+* ALLOW behaviour
+* WARN behaviour
+* BLOCK behaviour
+* Cross-domain detection
+* Redirect detection
+* Payment-related detection
+* Password-input detection
+* JavaScript-related detection
+* Static-to-Dynamic scanner selection
+
+---
+
+# CLI Debugging
+
+Individual pipeline components can also be tested independently when their corresponding JSON input/output files are available.
+
+Example analyser usage:
+
+```bash
 python Bodyguard/analyser.py analysis.json analyser.json
+```
 
-Actions:
+Example actions usage:
 
+```bash
 python Bodyguard/actions.py analyser.json actions.json
+```
 
-These commands are useful for inspecting each stage independently.
+These commands are useful for inspecting the intermediate pipeline results.
 
-Current limitations
+---
 
-This is a static HTML security scanner at the current stage.
+# Security Model
 
-It does not yet provide a full browser environment. In particular, it does not:
+The intended architecture is:
 
-execute JavaScript
-
-render modern client-side applications
-
-observe dynamically created DOM elements
-
-actually click buttons
-
-follow JavaScript-driven navigation
-
-inspect navigation that only appears after user interaction
-
-provide a browser-level sandbox
-
-The detector can identify some JavaScript navigation clues from inline handlers, but it does not execute the JavaScript.
-
-The current /scan endpoint also performs the complete scanner → detector → analyser → actions pipeline synchronously for one URL.
-
-Security model
-
-The intended design is:
-
-AI agent
-   ↓
-Security middleware
-   ↓
+```text
+AI Agent
+    ↓
+AI Bodyguard / Security Middleware
+    ↓
 Web
+```
 
-rather than allowing the AI agent to directly access arbitrary web destinations.
+rather than:
 
-The Bodyguard should be treated as a defensive analysis layer, not as proof that a website is safe. A result such as ALLOW means that no currently implemented detector rule triggered a warning or block; it does not establish that a site is trustworthy.
+```text
+AI Agent
+    ↓
+Web
+```
 
-Version
+The Bodyguard acts as a defensive analysis layer between the AI agent and web destinations.
+
+An `ALLOW` result does **not** prove that a website is trustworthy.
+
+It means that the currently implemented detection rules did not produce a WARN or BLOCK decision for the inspected page.
+
+Similarly, a security decision is based on the signals available to the scanner and should not be interpreted as a guarantee of complete website safety.
+
+---
+
+# Current Capabilities
+
+The current system provides:
+
+* Static HTML inspection
+* Dynamic browser-based inspection
+* Playwright/Chromium support
+* Security signal detection
+* Risk scoring
+* ALLOW/WARN/BLOCK decisions
+* Action planning
+* Flask API integration
+* AI Explorer integration
+* Structured JSON communication between pipeline stages
+
+---
+
+# Current Limitations
+
+The Dynamic scanner improves inspection of JavaScript-enabled pages, but it is not a complete browser security sandbox.
+
+The current system does not guarantee:
+
+* Complete detection of all malicious websites
+* Complete detection of all dynamically generated behaviour
+* Full browser isolation
+* Complete analysis of every user interaction
+* Complete detection of malicious behaviour hidden behind complex application state
+* Proof that an ALLOW result represents a trustworthy website
+
+The Dynamic scanner also requires both the Python Playwright package and its Chromium browser installation.
+
+The current `/scan` endpoint processes the scanning pipeline synchronously for an individual URL.
+
+---
+
+# Defensive Testing
+
+For development and demonstrations, use controlled mock websites that contain known security signals.
+
+Useful test categories include:
+
+```text
+Safe page
+   ↓
+Expected: ALLOW
+
+Suspicious page
+   ↓
+Expected: WARN
+
+Multiple/high-risk signals
+   ↓
+Expected: BLOCK
+```
+
+A page producing multiple high-risk signals can reach the `70+` threshold and therefore exercise the BLOCK path.
+
+---
+
+# Version
 
 Current Bodyguard package version:
 
-0.1.0
+```text
+0.2.0
+```
+
+Project name:
+
+```text
+Vanguard
+```
+
+**Vanguard — Autonomous Agent Shield**
