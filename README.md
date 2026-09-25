@@ -1,918 +1,294 @@
-🛡️ Vanguard
-Autonomous Agent Shield
+# Vanguard — Autonomous Agent Shield
+
+Vanguard is a Flask-based web security gateway for AI agents. It inspects a URL before an agent can interact with it, combines static HTML analysis with optional browser-based inspection, and returns an explainable `ALLOW`, `WARN`, or `BLOCK` decision.
+
+The project is designed for defensive security research, hackathon demonstrations, and controlled testing of safeguards around autonomous web agents.
+
+> **Important:** Vanguard is an analysis and policy layer, not a universal website-safety oracle or a hardened browser sandbox. Only scan systems and pages that you own or are authorized to assess.
+
+## Highlights
+
+- Flask web application with a login/signup flow and multi-chat interface
+- Shared URL safety checks designed to reduce SSRF risk
+- Static HTML inspection using `requests` and BeautifulSoup
+- Optional dynamic inspection using Playwright and Chromium
+- Detection of suspicious redirects, cross-domain actions, sensitive forms, JavaScript navigation, and intent/destination mismatches
+- Weighted risk scoring with `ALLOW`, `WARN`, and `BLOCK` outcomes
+- Action plans that prevent automatic execution of blocked actions and require confirmation for warnings
+- OpenAI-powered contextual review for warning cases
+- AI web explorer that must ask Bodyguard to inspect a URL before accessing it
+- SQLite persistence for users, chats, messages, and scan results
+- Live scan progress in the browser UI
+- Recursive investigation with depth and total-investigation limits
+
+## Architecture
+
+```text
+User / AI agent
+      |
+      v
+Flask application (app.py)
+  |       |        |
+  |       |        +--> SQLite: users, chats, messages, scan_results
+  |       |
+  |       +--> AI_Searcher/explorer1.py
+  |                    |
+  |                    +--> POST /scan before visiting a URL
+  |
+  +--> Bodyguard pipeline
+          |
+          +--> URL safety / SSRF checks
+          +--> Static scanner
+          +--> Dynamic scanner when heuristics require it
+          +--> Detector: extracts security signals
+          +--> Analyser: scores signals and decides ALLOW/WARN/BLOCK
+          +--> Actions: converts findings into an execution plan
+          +--> Investigator / AI analyser for contextual review
+```
+
+The main entry point is `app.py`. A request to `/scan` first passes through `url_safety.is_safe_url()`, then through the static scanner. If the static result contains scripts or inline JavaScript handlers, `Bodyguard.heuristics.should_use_dynamic()` enables the Playwright path. The resulting evidence is analysed and converted into a response containing the decision, score, findings, reasons, and actions.
+
+For chat requests, the Flask app starts a background explorer job. `AI_Searcher/explorer1.py` uses OpenAI tool calling, but its only web-access tool is `ask_bodyguard`; `BLOCK` results must not be bypassed. Completed scan results are linked to the active chat in SQLite.
+
+## Repository layout
+
+```text
+app.py                    Flask server, authentication, chat APIs, scan jobs
+url_safety.py             HTTP(S) validation and DNS/IP-based SSRF protection
+requirements.txt          Python dependencies
+vanguard.db               SQLite database file included in the repository
+
+Bodyguard/
+  __init__.py              Public package exports and pipeline version
+  detector.py              Extracts suspicious signals from scanner output
+  analyser.py              Weights signals and produces risk decisions
+  actions.py               Builds ALLOW/WARN/BLOCK action plans
+  heuristics.py            Decides when dynamic scanning is needed
+  investigator.py          Safe, bounded recursive investigation
+  ai_analyser.py           Structured OpenAI contextual analysis
+
+Static/
+  scanner.py               Bounded HTTP fetching and static HTML inspection
+
+Dynamic/
+  fetcher.py               Playwright browser fetch with request interception
+  extractor.py              Extracts evidence from rendered HTML
+  prettifier.py             Optional HTML formatting helper
+
+AI_Searcher/
+  explorer1.py              OpenAI-powered guarded web explorer
+
+templates/
+  index.html                Authentication and three-panel chat/security UI
+```
+
+## Requirements
+
+- Python 3.10+ recommended
+- A working internet connection for URL scanning and OpenAI requests
+- Chromium installed for dynamic scans
+- An OpenAI API key for Explorer1 and AI-assisted review
+
+## Installation
+
+```bash
+git clone https://github.com/daiwik2009/hackathon_repo_Aws.git
+cd hackathon_repo_Aws
 
-Vanguard is an AI-powered defensive web-security layer designed to protect autonomous AI agents before they access, navigate, or interact with potentially deceptive web pages.
-
-Instead of allowing an AI agent to directly interact with arbitrary websites:
-
-AI Agent
-   │
-   ▼
-Vanguard
-   │
-   ├── URL validation
-   ├── Static inspection
-   ├── Dynamic browser inspection
-   ├── Security detection
-   ├── Risk analysis
-   ├── Confidence estimation
-   ├── AI-assisted investigation
-   ├── Action planning
-   └── Exploration tracking
-   │
-   ▼
-Web
-
-Vanguard acts as the security boundary between an autonomous agent and the web.
-
-✨ What Vanguard Does
-
-Vanguard combines an AI web explorer with a security analysis pipeline.
-
-When an agent wants to access a website, Vanguard can:
-
-Inspect the requested URL
-Fetch and analyze the page
-Detect suspicious security signals
-Determine whether dynamic inspection is necessary
-Use Playwright/Chromium for JavaScript-enabled pages
-Analyze redirects and navigation behaviour
-Identify deceptive or suspicious page characteristics
-Calculate a risk score
-Provide a confidence value when available
-Produce an ALLOW, WARN, or BLOCK decision
-Generate security findings and recommended actions
-Perform additional AI-assisted investigation for warning cases
-Track exploration depth
-Persist scan results
-Display live scan progress inside the web interface
-Keep scans associated with the current chat
-Allow multiple independent conversations
-Preserve chat and scan history
-
-The result is a unified security interface rather than a collection of disconnected command-line tools.
-
-🧠 Core Architecture
-
-Vanguard consists of three major layers.
-
-┌───────────────────────────────────────────────┐
-│                Vanguard Web UI                │
-│                                               │
-│  Authentication • Chats • Live Scan Monitor  │
-│  Scan Results • Risk • Confidence • Findings │
-└───────────────────────┬───────────────────────┘
-                        │
-                        ▼
-┌───────────────────────────────────────────────┐
-│                  Flask App                    │
-│                                               │
-│  Authentication                               │
-│  Chat Management                              │
-│  Message Persistence                          │
-│  Scan Jobs                                    │
-│  Live Progress                                │
-│  Scan Result Persistence                      │
-│  Explorer Integration                         │
-└───────────────────────┬───────────────────────┘
-                        │
-            ┌───────────┴───────────┐
-            ▼                       ▼
-┌──────────────────────┐  ┌──────────────────────┐
-│   Bodyguard Engine   │  │     Explorer1        │
-│                      │  │                      │
-│ Scanner              │  │ AI exploration       │
-│ Detector             │  │ Tool calling         │
-│ Analyser             │  │ Exploration depth    │
-│ Actions              │  │ Bodyguard requests   │
-│ Dynamic scanner      │  │ Guarded navigation   │
-└──────────────────────┘  └──────────────────────┘
-🔐 Security Pipeline
-
-The underlying Bodyguard pipeline is:
-
-URL
- │
- ▼
-URL Safety Validation
- │
- ▼
-Static Scanner
- │
- ▼
-Should Dynamic Scan Run?
- │
- ├── No ───────────────┐
- │                     │
- └── Yes               │
-       │               │
-       ▼               │
- Playwright            │
- Chromium              │
- Dynamic Scan          │
-       │               │
-       └───────┬───────┘
-               ▼
-           Detector
-               │
-               ▼
-            Analyser
-               │
-               ▼
-          Risk Evaluation
-               │
-               ▼
-          Action Planner
-               │
-               ▼
-       ALLOW / WARN / BLOCK
-
-For warning-level results, Vanguard can optionally invoke an additional AI investigation layer.
-
-🔎 Static Inspection
-
-The static scanner performs analysis without requiring a full browser session.
-
-Depending on the detected page characteristics, Vanguard can inspect signals such as:
-
-HTML structure
-Links
-Forms
-Password inputs
-Navigation targets
-Suspicious redirects
-Cross-domain behaviour
-JavaScript-related indicators
-Payment-related page signals
-Other security-relevant page characteristics
-
-Static inspection is intentionally lightweight and is used whenever a browser-based scan is unnecessary.
-
-🌐 Dynamic Inspection
-
-Some websites cannot be adequately understood from their initial HTML.
-
-Vanguard can therefore switch to a Playwright/Chromium-based dynamic scanner when the static analysis indicates that additional browser-level inspection is useful.
-
-Dynamic inspection is intended to expose behaviour that may only become visible after rendering.
-
-This provides additional visibility into:
-
-JavaScript-driven pages
-Dynamically generated content
-Client-side navigation
-Runtime page behaviour
-Browser-rendered elements
-Dynamic security signals
-
-Playwright requires a locally installed Chromium browser.
-
-🤖 AI Explorer
-
-Vanguard integrates the project's AI_Searcher/explorer1.py module directly into the Flask application.
-
-The Explorer does not independently bypass the security layer.
-
-Its intended flow is:
-
-User Request
-     │
-     ▼
-Explorer1
-     │
-     │ requests URL
-     ▼
-Vanguard Bodyguard
-     │
-     ├── ALLOW
-     ├── WARN
-     └── BLOCK
-     │
-     ▼
-Explorer continues according to decision
-
-Explorer is instructed to respect Bodyguard decisions.
-
-In particular:
-
-ALLOW permits the requested web action to proceed
-WARN identifies the destination as requiring caution
-BLOCK must not be overridden
-Explorer should not claim to have visited a website without the corresponding guarded action
-🧭 Exploration Depth
-
-Explorer searches can involve multiple pages.
-
-Vanguard tracks the exploration depth of these requests.
-
-Conceptually:
-
-Depth 1
-└── Initial page
-
-Depth 2
-├── Linked page
-├── Redirected page
-└── Discovered destination
-
-Depth 3
-├── Further discovered page
-└── Additional navigation
-
-The live interface exposes this activity while the scan is running.
-
-This makes it possible to understand not only the final answer, but also which destinations Vanguard inspected along the way.
-
-📡 Live Scan Monitoring
-
-Vanguard's current Flask architecture includes a live Explorer job system.
-
-A scan job maintains information such as:
-
-Job ID
-Chat ID
-Current status
-Current scanning stage
-Pages scanned
-Scan IDs
-Final answer
-Errors, if any
-
-The application updates the job while exploration is occurring.
-
-Typical progress can include stages such as:
-
-Starting Vanguard scan…
-        ↓
-Connecting to Explorer1…
-        ↓
-Deep scanning page 1
-        ↓
-Completed scan
-        ↓
-Deep scanning page 2
-        ↓
-Explorer1 is searching through guarded pages…
-        ↓
-Scan complete
-
-This allows the frontend to display scanning progress instead of appearing frozen while the AI is working.
-
-📊 Risk & Confidence
-
-Each successful scan can expose:
-
-Decision
-Risk Score
-Confidence
-Reason
-Findings
-Recommended Actions
-Scan Mode
-
-Example conceptual result:
-
-{
-  "decision": "WARN",
-  "risk_score": 62,
-  "confidence": 0.91,
-  "reason": "Suspicious cross-domain navigation detected.",
-  "scan_mode": "dynamic"
-}
-Risk score
-
-The risk score represents the severity calculated from the signals detected by the implemented analysis pipeline.
-
-It is not a universal measurement of website maliciousness.
-
-Confidence
-
-Confidence indicates how strongly the available analysis supports the associated security assessment when a confidence value is available.
-
-Vanguard does not invent a confidence value when the underlying analysis does not provide one.
-
-🚦 Security Decisions
-
-Vanguard uses three primary decisions:
-
-Decision	Meaning
-ALLOW	No currently implemented rule produced a warning or blocking condition
-WARN	Security-relevant signals require additional caution or investigation
-BLOCK	The implemented security pipeline identified conditions requiring the action to be blocked
-
-These decisions are generated from the signals available to the implemented scanner and analysis pipeline.
-
-An ALLOW result does not prove that a website is trustworthy or completely safe.
-
-Likewise, BLOCK does not mean Vanguard has mathematically proven that every possible behaviour of the destination is malicious.
-
-🧩 AI-Assisted Investigation
-
-For warning-level results, Vanguard can optionally use the project's investigation layer for additional contextual analysis.
-
-The application can pass:
-
-URL
-Static scan result
-Dynamic scan result
-
-to the investigation component.
-
-This produces an additional ai_review field when AI review is enabled and available.
-
-The deterministic security decision remains part of the core pipeline; the AI review provides additional context rather than replacing the underlying scanner result.
-
-💬 Multi-Chat Interface
-
-Vanguard is no longer only a command-line security API.
-
-The Flask application provides a complete chat-oriented interface.
-
-Users can:
-
-Create multiple chats
-Switch between chats
-Continue previous conversations
-Store messages
-Associate scans with individual chats
-View scan information belonging to the current conversation
-Maintain separate investigation sessions
-
-The database keeps the chat state separate for each authenticated user.
-
-👤 Authentication
-
-Vanguard includes application-level authentication.
-
-Supported functionality includes:
-
-Sign up
-Login
-Logout
-Password hashing
-Session-based authentication
-Per-user chat ownership
-
-Usernames are validated before account creation.
-
-Passwords are stored as password hashes rather than plaintext values.
-
-The application also creates a CSRF token when a user session is established.
-
-🗃️ Persistence
-
-The Flask application uses SQLite for local persistence.
-
-The database stores information required by the application, including:
-
-Users
-Chats
-Messages
-Scan Results
-
-Scan records can contain:
-
-Chat association
-URL
-Decision
-Risk score
-Confidence
-Reason
-Detailed JSON result
-Message association when available
-
-This allows scan information to remain available after the live scan has completed.
-
-🖥️ Vanguard Interface
-
-The current interface is designed around an AI-security-console workflow.
-
-The main experience contains:
-
-┌──────────────┬──────────────────────┬──────────────────────┐
-│              │                      │                      │
-│ Chat History │      Conversation    │   Security Monitor   │
-│              │                      │                      │
-│ Chat 1       │  User message        │   Pages scanned      │
-│ Chat 2       │                      │   Risk score         │
-│ Chat 3       │  AI response         │   Confidence         │
-│              │                      │   Decision            │
-│              │  Scan in progress    │   Reason              │
-│              │                      │   Depth               │
-│              │                      │                      │
-└──────────────┴──────────────────────┴──────────────────────┘
-
-The security monitor is intended to update while exploration is happening instead of only appearing after the final response.
-
-🔄 End-to-End Request Flow
-
-A typical request follows this lifecycle:
-
-1. User creates/selects a chat
-              │
-              ▼
-2. User submits a request
-              │
-              ▼
-3. Flask creates an Explorer job
-              │
-              ▼
-4. Explicit URLs are detected
-              │
-              ▼
-5. Vanguard begins scanning
-              │
-              ▼
-6. Live scan state is updated
-              │
-              ▼
-7. Explorer1 performs guarded exploration
-              │
-              ▼
-8. Each requested destination reaches Bodyguard
-              │
-              ▼
-9. Static/dynamic analysis runs
-              │
-              ▼
-10. Risk + confidence + decision generated
-              │
-              ▼
-11. Result persisted to database
-              │
-              ▼
-12. Scan monitor receives the result
-              │
-              ▼
-13. Explorer continues or stops according
-    to the security decision
-              │
-              ▼
-14. Final AI response generated
-              │
-              ▼
-15. Assistant message persisted
-              │
-              ▼
-16. Job becomes completed
-
-The completed job remains associated with the current chat instead of automatically forcing the user into a new conversation.
-
-🏗️ Project Structure
-
-The repository is conceptually organized as:
-
-Vanguard/
-│
-├── app.py
-│
-├── AI_Searcher/
-│   ├── explorer1.py
-│   └── ...
-│
-├── Bodyguard/
-│   ├── scanner.py
-│   ├── detector.py
-│   ├── analyser.py
-│   ├── actions.py
-│   ├── investigator.py
-│   ├── ai_analyser.py
-│   └── __init__.py
-│
-├── templates/
-│   └── index.html
-│
-├── static/
-│   ├── css/
-│   └── js/
-│
-├── requirements.txt
-├── .env
-├── .gitignore
-└── README.md
-
-The exact directory names may vary between repository revisions, but the architectural roles remain the same.
-
-🧱 Main Components
-app.py
-
-The main Flask application.
-
-Responsible for:
-
-Web server
-Authentication
-Sessions
-Database access
-Chat management
-Messages
-Scan API
-Explorer integration
-Background Explorer jobs
-Live scan state
-Scan persistence
-Frontend rendering
-
-The current architecture does not require a second Flask application for Explorer.
-
-Bodyguard/scanner.py
-
-Responsible for fetching and inspecting web destinations.
-
-Provides the static and dynamic scanning foundations.
-
-Bodyguard/detector.py
-
-Processes scanner output and identifies security-relevant signals.
-
-Bodyguard/analyser.py
-
-Evaluates the detected signals and produces higher-level security assessment information such as risk and overall decision.
-
-Bodyguard/actions.py
-
-Converts the security assessment into an action plan.
-
-Bodyguard/investigator.py
-
-Provides contextual investigation capabilities used by the optional AI-review layer.
-
-Bodyguard/ai_analyser.py
-
-Supports AI-assisted analysis where enabled by the application.
-
-AI_Searcher/explorer1.py
-
-Provides the autonomous exploration layer.
-
-Explorer uses an ask_bodyguard tool to request security inspection before accessing a destination.
-
-The current integration supports scan callbacks so the Flask application can observe exploration progress while the Explorer is working.
-
-⚙️ Installation
-1. Clone the repository
-git clone <your-repository-url>
-cd Vanguard
-2. Create a virtual environment
-Windows PowerShell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-If PowerShell execution policy prevents activation, the environment can also be used directly through its Python executable.
-
-Linux / macOS
 python -m venv .venv
+
+# Linux/macOS
 source .venv/bin/activate
-3. Install dependencies
+
+# Windows PowerShell
+# .\.venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
-
-The current dependency set includes the main packages required by the application, including:
-
-Flask
-requests
-beautifulsoup4
-python-dotenv
-openai
-playwright
-🌐 Install Playwright Chromium
-
-Because Vanguard can perform dynamic browser-based inspection, install the Chromium browser used by Playwright:
-
 python -m playwright install chromium
+```
 
-This is required in addition to installing the Python playwright package.
+Create a `.env` file in the repository root:
 
-🔑 Environment Configuration
-
-Create a .env file in the project root.
-
-Example:
-
+```dotenv
 OPENAI_API_KEY=your_openai_api_key
+VANGUARD_SECRET_KEY=replace_with_a_long_random_secret
 BODYGUARD_URL=http://127.0.0.1:5000
-SECRET_KEY=replace_with_a_random_secret
+# Set to 0 to disable AI review for WARN results
+VANGUARD_AI_REVIEW=1
+```
 
-Do not commit API keys or other secrets to Git.
+`BODYGUARD_URL` is used by `AI_Searcher/explorer1.py` when it calls the Flask scan endpoint. When Explorer1 runs inside the same application, the default `http://127.0.0.1:5000` is normally sufficient.
 
-A .gitignore should exclude:
+## Run the application
 
-.env
-venv/
-.venv/
-__pycache__/
-*.pyc
-*.db
-▶️ Running Vanguard
-
-The current architecture is designed around the Flask application.
-
-From the project root:
-
+```bash
 python app.py
+```
 
-The application will normally be available at:
+Open <http://127.0.0.1:5000> and create an account. The application initializes `vanguard.db` on startup.
 
-http://127.0.0.1:5000
+The application listens on `0.0.0.0` and uses port `5000` by default. Override the port with:
 
-Open that address in a browser.
+```bash
+PORT=8000 python app.py
+```
 
-The Flask application loads the Explorer module internally, so the current integrated architecture does not require running a separate Flask server for Explorer.
+On Windows PowerShell:
 
-🔌 Bodyguard API
+```powershell
+$env:PORT = "8000"
+python app.py
+```
 
-The primary backward-compatible scan endpoint is:
+## Scan API
 
-POST /scan
+`POST /scan` is the machine-to-machine endpoint used by Explorer1 and can also be called directly.
 
-Example request:
+```bash
+curl -X POST http://127.0.0.1:5000/scan \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com"}'
+```
 
-import requests
+Example response shape:
 
-response = requests.post(
-    "http://127.0.0.1:5000/scan",
-    json={
-        "url": "https://example.com"
-    },
-    timeout=60
-)
-
-print(response.json())
-
-A successful response can contain:
-
+```json
 {
-    "status": "success",
-    "url": "https://example.com",
-    "scan_mode": "static",
-    "page": {},
-    "security": {
-        "decision": "ALLOW",
-        "risk_score": 0,
-        "confidence": null
-    },
-    "findings": [],
-    "reason": "No significant security finding was reported by the scanner.",
-    "actions": [],
-    "page_action": {}
+  "status": "success",
+  "url": "https://example.com",
+  "scan_mode": "static",
+  "security": {
+    "decision": "ALLOW",
+    "risk_score": 0,
+    "confidence": null
+  },
+  "findings": [],
+  "reason": "No significant security finding was reported by the scanner.",
+  "actions": [],
+  "page_action": {}
 }
+```
 
-The exact response fields can evolve as the analysis pipeline develops.
-
-💬 Chat API
-
-The Flask application also exposes chat-oriented routes.
-
-The chat layer is responsible for:
-
-Creating conversations
-Loading conversations
-Sending messages
-Starting Explorer jobs
-Polling job state
-Returning scan information
-Persisting assistant responses
-
-The frontend uses these routes to maintain the multi-chat experience.
-
-🔬 Defensive Testing
-
-Vanguard is intended for defensive security research, controlled demonstrations, and testing of autonomous-agent safeguards.
-
-Use controlled pages containing known signals rather than attempting to test against systems you do not own or have permission to assess.
-
-Useful test cases include:
-
-Safe page
-Expected:
-ALLOW
-Suspicious page
-Expected:
-WARN
-High-risk test page
-Expected:
-BLOCK
-
-Useful security-test categories include:
-
-Cross-domain navigation
-Redirects
-Suspicious payment flows
-Password-input pages
-Deceptive UI
-JavaScript navigation
-Dynamic page behaviour
-Suspicious external links
-Multiple combined security signals
-
-A controlled test page containing enough high-risk signals can be used to exercise the higher-risk decision path.
-
-🧪 Testing the Vanguard Stack
+The response can also include page metadata, dynamic scan output, and `ai_review` data when AI review is enabled and the deterministic result is `WARN`.
 
-A good development test sequence is:
+### Scan decisions
 
-1. Start Flask
-       ↓
-2. Log in
-       ↓
-3. Create a chat
-       ↓
-4. Submit a known-safe URL
-       ↓
-5. Confirm scan progress appears
-       ↓
-6. Confirm scan result is persisted
-       ↓
-7. Submit a controlled suspicious page
-       ↓
-8. Confirm risk + confidence + reason appear
-       ↓
-9. Confirm Explorer respects the decision
-       ↓
-10. Switch chats
-       ↓
-11. Return to the original chat
-       ↓
-12. Confirm history remains intact
-🛡️ Security Model
+| Decision | Meaning |
+| --- | --- |
+| `ALLOW` | No implemented rule currently justifies warning or blocking the page. |
+| `WARN` | Suspicious or ambiguous signals require caution or confirmation. |
+| `BLOCK` | The implemented analysis identified conditions that should stop the action. |
 
-Vanguard follows a guarded-agent model:
+A decision is based on the evidence available to the implemented scanners. `ALLOW` does not prove that a site is trustworthy, and `BLOCK` is not a mathematical proof that every possible page behaviour is malicious.
 
-                 ┌──────────────────┐
-                 │    AI Explorer   │
-                 └────────┬─────────┘
-                          │
-                    URL request
-                          │
-                          ▼
-                 ┌──────────────────┐
-                 │     Vanguard     │
-                 │    Bodyguard     │
-                 └────────┬─────────┘
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-            ALLOW        WARN        BLOCK
-              │           │           │
-              ▼           ▼           X
-            Proceed    Investigate    Stop
+## Chat and Explorer flow
 
-The fundamental security principle is:
+After signing in:
 
-The AI agent should not be allowed to bypass its security layer when interacting with the web.
+1. Create or select a chat.
+2. Send a question or paste one or more URLs.
+3. Flask creates a background Explorer job.
+4. Explicit URLs are scanned and shown in the security monitor.
+5. Explorer1 requests Bodyguard checks before navigating to discovered URLs.
+6. Scan progress, risk, confidence, findings, and depth are displayed live.
+7. Messages and successful scan results are persisted to the active chat.
 
-⚠️ Limitations
+Relevant routes include:
 
-Vanguard is a defensive analysis system, not a universal website-safety oracle.
+- `GET /login`, `POST /login`
+- `GET /signup`, `POST /signup`
+- `POST /logout`
+- `POST /api/chats`
+- `GET /api/chats/<chat_id>`
+- `DELETE /api/chats/<chat_id>`
+- `POST /api/chats/<chat_id>/messages`
+- `GET /api/jobs/<job_id>`
 
-It does not guarantee:
+Browser state-changing requests use the CSRF token supplied by the Flask template. `/scan` preserves its JSON machine-to-machine contract and relies on URL safety validation.
 
-Detection of every malicious website
-Detection of every deceptive page
-Detection of every dynamically generated behaviour
-Complete browser isolation
-Complete coverage of every user interaction
-Detection of malicious behaviour hidden behind complex application state
-That an ALLOW decision means a website is trustworthy
+## Command-line pipeline tools
 
-Dynamic scanning improves visibility into JavaScript-enabled pages, but it is not equivalent to a fully isolated browser security sandbox.
+The core components can also be exercised independently with JSON files:
 
-AI-assisted analysis can also be affected by incomplete page information, model limitations, or unavailable investigation data.
+```bash
+# Static scan a page and write scan.json
+python Static/scanner.py https://example.com
 
-🔐 Important Deployment Notes
+# Detect signals and write analysis.json
+python Bodyguard/detector.py scan.json
 
-The built-in Flask development server is suitable for local development and demonstrations.
+# Score findings and write analyser.json
+python Bodyguard/analyser.py analysis.json analyser.json
 
-For public deployment:
+# Build an action plan and write actions.json
+python Bodyguard/actions.py analyser.json actions.json
 
-Use a production WSGI server
-Use HTTPS
-Store secrets outside the repository
-Configure a secure session secret
-Restrict database permissions
-Apply appropriate network isolation
-Add request rate limiting
-Consider authentication hardening
-Avoid exposing debugging information
-Run browser-based scanning in an appropriately isolated environment
+# Run bounded recursive investigation
+python -m Bodyguard.investigator https://example.com
+```
 
-A publicly reachable Vanguard instance should not be treated as a hardened production security gateway merely because the application itself performs security analysis.
+For direct Explorer testing:
 
-🌍 Public Demonstration / Tunneling
+```bash
+python AI_Searcher/explorer1.py
+```
 
-For demonstrations where an external service needs to reach the locally running Vanguard instance, a tunneling service such as ngrok can expose the local Flask server through a temporary public URL.
+This requires `OPENAI_API_KEY` and a running Vanguard server if Explorer1 needs to call the default Bodyguard URL.
 
-For example:
+## Security controls
 
-ngrok http 5000
+### URL and SSRF protection
 
-The resulting public address can then be used where an externally reachable endpoint is required.
+`url_safety.py` only permits `http` and `https`, rejects blocked hostnames, resolves DNS, and refuses private, loopback, link-local, multicast, reserved, and unspecified IP addresses. The static scanner re-checks every redirect hop, while the dynamic scanner intercepts every browser request, including redirects and subresources.
 
-For production, use an appropriately configured hosting/deployment architecture instead of relying on a development tunnel.
+### Static inspection
 
-🧹 Development Hygiene
+`Static/scanner.py` limits redirects to five hops and response bodies to 5 MB. It extracts:
 
-Do not commit:
+- Links and destinations
+- Buttons and button-like elements
+- Forms, methods, and input controls
+- Inline JavaScript event handlers
+- Inline and external scripts
+- Page title, status, content type, requested URL, and final URL
 
-.env
-*.db
-__pycache__/
-*.pyc
-venv/
-.venv/
-temporary scan outputs
-API keys
+### Detection and scoring
 
-Python cache files such as __pycache__ and .pyc files are generated artifacts and normally do not need to be reviewed as application source code.
+`Bodyguard/detector.py` identifies signals such as:
 
-🧭 Design Principles
+- Cross-domain navigation
+- Login, payment, download, and redirect destinations
+- `javascript:`, `data:`, and `vbscript:` URLs
+- JavaScript-driven navigation and dynamic execution patterns
+- Password, identity, and payment inputs
+- Credential or payment submission to another domain
+- Sensitive data sent through GET
+- Actions whose visible intent does not match their destination
 
-Vanguard is built around several principles:
+`Bodyguard/analyser.py` applies weighted signals, overlap groups, combination bonuses, and thresholds:
 
-1. Security before navigation
+- `0–29`: `ALLOW`
+- `30–69`: `WARN`
+- `70–100`: `BLOCK`
 
-The agent should reach the web through the security layer.
+### Bounded investigation
 
-2. Deterministic analysis first
+`Bodyguard/investigator.py` prevents loops, normalizes URLs, limits recursion to depth 3 by default, and caps the complete investigation tree at 25 URLs. AI-requested targets must already have been discovered by a trusted scanner and must pass the shared URL safety guard.
 
-The core scanner and analysis pipeline provides the primary security decision.
+## Development notes and limitations
 
-3. Dynamic analysis when required
+- There is no test suite or CI workflow in the current repository; validate changes with the manual flows and CLI commands above.
+- The dynamic-scan heuristic currently enables Playwright whenever a page contains any script or inline JavaScript handler, so many modern pages will use the browser path.
+- `url_safety.is_safe_url()` performs resolve-then-check validation. It does not pin the validated IP through the subsequent HTTP request, so DNS rebinding remains a known limitation.
+- The Flask app stores background jobs in process memory; jobs are lost on restart and are not suitable for multi-worker coordination without a shared job system.
+- The included SQLite database is local development state. Do not use it as a production database without reviewing deployment and data-isolation requirements.
+- The built-in Flask server is for local development and demonstrations. Public deployments should use a production WSGI server, HTTPS, secure secret management, rate limiting, hardened authentication, network isolation, and an appropriately isolated browser environment.
+- Do not commit `.env`, API keys, generated scan output, virtual environments, or database files. Review the existing `.gitignore` before committing changes.
 
-Browser-based inspection is used when static inspection alone is insufficient.
+## Responsible use
 
-4. Observable exploration
+Use Vanguard only for authorized defensive testing and research. Do not use it to probe private networks, cloud metadata endpoints, third-party systems, or websites without permission. Treat scan results as security evidence for a decision—not as a guarantee of safety.
 
-Users should be able to see what Vanguard is scanning instead of waiting blindly for a final answer.
+## License
 
-5. Persistent evidence
-
-Scan results should remain associated with the conversation that generated them.
-
-6. Respect security decisions
-
-Explorer should never silently bypass a BLOCK result.
-
-7. Explainability
-
-Risk scores should be accompanied by findings, reasons, and available confidence information.
-
-8. Defensive operation
-
-Vanguard is intended for authorized security testing, research, and protection of autonomous agents.
-
-🚀 Roadmap
-
-Potential future improvements include:
-
-Stronger browser isolation
-More comprehensive redirect-chain analysis
-Improved cross-domain relationship tracking
-More dynamic interaction analysis
-Screenshot-based security inspection
-Richer scan timelines
-Persistent Explorer job storage
-Distributed background workers
-Redis/Celery-based job processing
-Production database support
-More granular permissions
-Advanced authentication
-Security event logging
-Scan replay
-Exportable security reports
-Improved AI-assisted investigation
-More comprehensive test coverage
-Containerized deployment
-📜 Version
-
-Current project identity:
-
-Project: Vanguard
-Tagline: Autonomous Agent Shield
-Architecture: Flask + AI Explorer + Bodyguard
-
-The Bodyguard engine retains its own internal package versioning where applicable.
-
-🛡️ Vanguard
-
-Autonomous Agent Shield
-
-                    VANGUARD
-             Autonomous Agent Shield
-
-                 AI Explorer
-                      │
-                      ▼
-               ┌─────────────┐
-               │  Bodyguard  │
-               └──────┬──────┘
-                      │
-          ┌───────────┼───────────┐
-          ▼           ▼           ▼
-        ALLOW        WARN        BLOCK
-          │           │           │
-          ▼           ▼           X
-        Proceed    Investigate    Stop
-
-Vanguard's purpose is simple:
-
-Give autonomous agents a security layer before they interact with the web.
+No license file is currently included. Until a license is added, all rights remain with the repository owner.
