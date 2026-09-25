@@ -11,7 +11,7 @@ URL
  │      ↓
  │   Detector
  │
- └── Dynamic scanner
+ └── Dynamic scanner (only when heuristics.should_use_dynamic says so)
         ↓
      Detector
         ↓
@@ -24,6 +24,7 @@ URL
 
 from __future__ import annotations
 
+import logging
 from urllib.parse import urljoin, urlparse
 
 from Static import scan_page
@@ -31,16 +32,34 @@ from Dynamic import scan
 
 from .detector import analyze_scan
 from .ai_analyser import analyse
+from .heuristics import should_use_dynamic
+from url_safety import is_safe_url  # shared, project-root module
 
+logger = logging.getLogger(__name__)
 
 MAX_DEPTH = 3
+
+# FIX: depth alone doesn't bound the work. A single page can contain
+# dozens of discovered URLs, and the AI can request several of them for
+# investigation at once -- each one triggers a full static (+ maybe
+# dynamic) scan and its own OpenAI call. Without a total ceiling, one
+# /scan request could fan out into dozens of expensive child
+# investigations even while staying within MAX_DEPTH. This caps the
+# whole investigation tree, not just how deep it can go.
+MAX_TOTAL_INVESTIGATIONS = 25
 
 
 class Investigator:
 
-    def __init__(self, max_depth: int = MAX_DEPTH):
+    def __init__(
+        self,
+        max_depth: int = MAX_DEPTH,
+        max_total_investigations: int = MAX_TOTAL_INVESTIGATIONS,
+    ):
         self.max_depth = max_depth
-        self.visited = set()
+        self.max_total_investigations = max_total_investigations
+        self.visited: set[str] = set()
+        self.investigation_count = 0
 
     # ============================================================
     # URL HELPERS
@@ -67,7 +86,16 @@ class Investigator:
     @staticmethod
     def is_valid_url(url: str) -> bool:
         """
-        Only allow normal HTTP/HTTPS URLs to be investigated.
+        Only allow normal HTTP/HTTPS URLs that also pass the shared
+        SSRF guard to be investigated.
+
+        FIX: this previously only checked scheme + netloc, which is a
+        syntax check, not a safety check. A URL like
+        "http://169.254.169.254/latest/meta-data/" or
+        "http://127.0.0.1:6379/" passed it fine. Every URL the
+        Investigator is about to fetch -- especially recursively
+        discovered ones an attacker-controlled page can plant --
+        now goes through url_safety.is_safe_url() as well.
         """
 
         if not url:
@@ -76,13 +104,24 @@ class Investigator:
         try:
             parsed = urlparse(url)
 
-            return parsed.scheme in {
-                "http",
-                "https"
-            } and bool(parsed.netloc)
+            if not (
+                parsed.scheme in {"http", "https"}
+                and bool(parsed.netloc)
+            ):
+                return False
 
         except Exception:
             return False
+
+        safe, reason = is_safe_url(url)
+
+        if not safe:
+            logger.warning(
+                "Rejected unsafe URL %s (%s)", url, reason
+            )
+            return False
+
+        return True
 
     # ============================================================
     # DISCOVER URLS FROM SCANNER OUTPUT
@@ -185,20 +224,33 @@ class Investigator:
     def investigate(
         self,
         url: str,
-        depth: int = 0
+        depth: int = 0,
+        precomputed_static: dict | None = None,
+        precomputed_dynamic: dict | None = None,
     ) -> dict:
+        """
+        Parameters
+        ----------
+        precomputed_static / precomputed_dynamic:
+            Optional. When app.py has already scanned the *root* URL
+            before deciding a WARN result deserves AI review, it can
+            pass those results in here at depth 0 so this doesn't
+            silently re-run the same static/dynamic scan a second
+            time. Never used below depth 0 -- recursive child URLs are
+            always scanned fresh here.
+        """
 
         url = self.normalize_url(url)
 
         # --------------------------------------------------------
-        # Validate URL
+        # Validate URL (syntax + SSRF safety)
         # --------------------------------------------------------
 
         if not self.is_valid_url(url):
 
             return {
                 "url": url,
-                "status": "invalid_url"
+                "status": "invalid_or_unsafe_url"
             }
 
         # --------------------------------------------------------
@@ -223,31 +275,37 @@ class Investigator:
                 "status": "depth_limit_reached"
             }
 
-        self.visited.add(url)
+        # --------------------------------------------------------
+        # Prevent excessive fan-out across the whole tree
+        # --------------------------------------------------------
 
-        print(
-            f"[INVESTIGATOR] "
-            f"Scanning depth {depth}: {url}"
-        )
+        if self.investigation_count >= self.max_total_investigations:
+
+            return {
+                "url": url,
+                "status": "investigation_budget_exhausted"
+            }
+
+        self.visited.add(url)
+        self.investigation_count += 1
+
+        logger.info("Investigating depth %s: %s", depth, url)
 
         # ========================================================
         # STATIC SCAN
         # ========================================================
 
+        if depth == 0 and precomputed_static is not None:
+            static_result = precomputed_static
+        else:
+            try:
+                static_result = scan_page(url)
+            except Exception as error:
+                static_result = {"error": str(error)}
+
         try:
-
-            static_result = scan_page(url)
-
-            static_analysis = analyze_scan(
-                static_result
-            )
-
+            static_analysis = analyze_scan(static_result)
         except Exception as error:
-
-            static_result = {
-                "error": str(error)
-            }
-
             static_analysis = {
                 "page": {},
                 "findings": [],
@@ -255,28 +313,33 @@ class Investigator:
             }
 
         # ========================================================
-        # DYNAMIC SCAN
+        # DYNAMIC SCAN (only when the static result suggests it's
+        # actually needed -- same heuristic app.py uses, so a
+        # recursively investigated child URL doesn't unconditionally
+        # pay for a Chromium launch it doesn't need)
         # ========================================================
 
-        try:
+        dynamic_result: dict = {}
+        dynamic_analysis: dict = {"page": {}, "findings": []}
 
-            dynamic_result = scan(url)
+        if depth == 0 and precomputed_dynamic is not None:
+            dynamic_result = precomputed_dynamic
+            try:
+                dynamic_analysis = analyze_scan(dynamic_result)
+            except Exception as error:
+                dynamic_analysis = {
+                    "page": {}, "findings": [], "error": str(error)
+                }
 
-            dynamic_analysis = analyze_scan(
-                dynamic_result
-            )
-
-        except Exception as error:
-
-            dynamic_result = {
-                "error": str(error)
-            }
-
-            dynamic_analysis = {
-                "page": {},
-                "findings": [],
-                "error": str(error)
-            }
+        elif isinstance(static_result, dict) and should_use_dynamic(static_result):
+            try:
+                dynamic_result = scan(url)
+                dynamic_analysis = analyze_scan(dynamic_result)
+            except Exception as error:
+                dynamic_result = {"error": str(error)}
+                dynamic_analysis = {
+                    "page": {}, "findings": [], "error": str(error)
+                }
 
         # ========================================================
         # DISCOVER POSSIBLE NEXT DESTINATIONS
@@ -341,6 +404,10 @@ class Investigator:
 
         except Exception as error:
 
+            logger.warning(
+                "AI analysis failed for %s: %s", url, error
+            )
+
             return {
                 "url": url,
                 "depth": depth,
@@ -374,6 +441,7 @@ class Investigator:
                 False
             )
             and depth < self.max_depth
+            and self.investigation_count < self.max_total_investigations
         ):
 
             requests = judgement.get(
@@ -382,6 +450,13 @@ class Investigator:
             )
 
             for request in requests:
+
+                if self.investigation_count >= self.max_total_investigations:
+                    logger.info(
+                        "Investigation budget exhausted, stopping fan-out from %s",
+                        url,
+                    )
+                    break
 
                 target = request.get("url")
 
@@ -395,14 +470,16 @@ class Investigator:
                 # ------------------------------------------------
                 # SECURITY CHECK:
                 # AI can only investigate URLs that our scanners
-                # actually discovered.
+                # actually discovered (extract_discovered_urls()
+                # already ran every entry through the SSRF guard,
+                # so this membership check also enforces safety).
                 # ------------------------------------------------
 
                 if target not in discovered_urls:
 
-                    print(
-                        "[INVESTIGATOR] "
-                        f"Rejected AI-requested URL: {target}"
+                    logger.warning(
+                        "Rejected AI-requested URL not in discovered_urls: %s",
+                        target,
                     )
 
                     continue
@@ -410,9 +487,8 @@ class Investigator:
                 if target in self.visited:
                     continue
 
-                print(
-                    "[INVESTIGATOR] "
-                    f"Deeper investigation requested: {target}"
+                logger.info(
+                    "Deeper investigation requested: %s", target
                 )
 
                 child_result = self.investigate(
@@ -443,6 +519,8 @@ if __name__ == "__main__":
 
     import json
     import sys
+
+    logging.basicConfig(level=logging.INFO)
 
     if len(sys.argv) != 2:
 

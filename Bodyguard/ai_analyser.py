@@ -21,8 +21,14 @@ load_dotenv()
 
 MODEL = "gpt-5-mini"
 
+# FIX: no timeout meant a hung OpenAI request could stall a whole
+# investigation (and, transitively, a WARN /scan response) indefinitely.
+# investigator.py already wraps analyse() in try/except and degrades
+# gracefully to "ai_analysis_failed" on any exception, so a timeout
+# here converts a silent hang into a fast, handled failure.
 client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=20.0,
 )
 
 

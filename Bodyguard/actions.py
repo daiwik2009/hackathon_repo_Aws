@@ -121,6 +121,16 @@ class ActionEngine:
                 "The analyser marked the page as ALLOW."
             )
 
+        # FIX: convenience summary of every unique signal that
+        # contributed to this page's actions, so a caller (or the
+        # confirmation UI on a WARN) doesn't have to iterate every
+        # individual finding just to see what was detected.
+        all_signals = sorted({
+            signal
+            for finding in findings
+            for signal in finding.get("signals", [])
+        })
+
         return {
             "page": analysis.get(
                 "page",
@@ -134,6 +144,8 @@ class ActionEngine:
                 "risk_score",
                 0
             ),
+
+            "all_signals": all_signals,
 
             "page_action": {
                 "action": page_action.value,

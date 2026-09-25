@@ -1,4 +1,5 @@
 import json
+import os
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
@@ -162,14 +163,24 @@ def extract_scripts(soup):
     return scripts
 
 
-def extract_page(html_file="temp.html", metadata_file="metadata.json"):
-    """Extract Bodyguard-compatible evidence."""
+def extract_page(workdir=".", html_file="temp.html", metadata_file="metadata.json"):
+    """
+    Extract Bodyguard-compatible evidence.
+
+    FIX: workdir added so this reads the same per-scan directory that
+    fetcher.fetch() just wrote to, instead of a fixed filename in the
+    current directory (see Dynamic/__init__.py and the note in
+    fetcher.py about why fixed filenames were unsafe under concurrency).
+    """
+    html_path = os.path.join(workdir, html_file)
+    metadata_path = os.path.join(workdir, metadata_file)
+
     # Load rendered HTML
-    with open(html_file, "r", encoding="utf-8") as file:
+    with open(html_path, "r", encoding="utf-8") as file:
         html = file.read()
 
     # Load browser metadata
-    with open(metadata_file, "r", encoding="utf-8") as file:
+    with open(metadata_path, "r", encoding="utf-8") as file:
         metadata = json.load(file)
 
     soup = BeautifulSoup(html, "html.parser")

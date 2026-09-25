@@ -1,12 +1,17 @@
+import os
+
 from bs4 import BeautifulSoup
 
-def prettify():
-    with open("temp.html", "r", encoding="utf-8") as f:
+
+def prettify(workdir="."):
+    path = os.path.join(workdir, "temp.html")
+
+    with open(path, "r", encoding="utf-8") as f:
         html = f.read()
 
     soup = BeautifulSoup(html, "html.parser")
 
     pretty_html = soup.prettify()
 
-    with open("temp.html", "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8") as f:
         f.write(pretty_html)

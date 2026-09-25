@@ -253,6 +253,21 @@ def detect_url_scheme(url: str | None) -> str | None:
 # REDIRECT PARAMETERS
 # ============================================================
 
+REDIRECT_PARAMETER_NAMES = {
+    "url",
+    "redirect",
+    "redirect_url",
+    "redirect_uri",
+    "return",
+    "return_url",
+    "next",
+    "continue",
+    "target",
+    "destination",
+    "dest",
+}
+
+
 def has_suspicious_redirect_parameters(url: str | None) -> bool:
     if not url:
         return False
@@ -261,24 +276,50 @@ def has_suspicious_redirect_parameters(url: str | None) -> bool:
         parsed = urlparse(url)
         parameters = parse_qs(parsed.query)
 
-        redirect_parameters = {
-            "url",
-            "redirect",
-            "redirect_url",
-            "redirect_uri",
-            "return",
-            "return_url",
-            "next",
-            "continue",
-            "target",
-            "destination",
-            "dest",
-        }
-
         return any(
-            param.lower() in redirect_parameters
+            param.lower() in REDIRECT_PARAMETER_NAMES
             for param in parameters
         )
+
+    except Exception:
+        return False
+
+
+def redirect_value_points_externally(
+    url: str | None,
+    page_domain: str | None,
+) -> bool:
+    """
+    NEW: check not just whether a redirect-style parameter exists, but
+    whether its *value* is itself an absolute URL pointing at a
+    different domain -- which is the actual open-redirect risk.
+
+    A parameter named "next" with a same-site relative value
+    ("next=/dashboard") is completely normal application behaviour and
+    was previously scored identically to "next=https://evil.example/",
+    which is the real attack pattern. This distinguishes the two.
+    """
+
+    if not url or not page_domain:
+        return False
+
+    try:
+        parsed = urlparse(url)
+        parameters = parse_qs(parsed.query)
+
+        for param, values in parameters.items():
+
+            if param.lower() not in REDIRECT_PARAMETER_NAMES:
+                continue
+
+            for value in values:
+
+                value_domain = get_domain(value)
+
+                if value_domain and value_domain != page_domain:
+                    return True
+
+        return False
 
     except Exception:
         return False
@@ -452,6 +493,9 @@ def detect_link(link: dict, page_url: str) -> dict:
     if has_suspicious_redirect_parameters(destination):
         signals.append("redirect_parameter")
 
+    if redirect_value_points_externally(destination, page_domain):
+        signals.append("redirect_parameter_points_externally")
+
     # --------------------------------------------------------
     # INTENT MISMATCH
     # --------------------------------------------------------
@@ -499,6 +543,8 @@ def detect_button(button: dict, page_url: str) -> dict:
 
     text_intents = classify_text(text)
 
+    page_domain = get_domain(page_url)
+
     # --------------------------------------------------------
     # DESTINATION
     # --------------------------------------------------------
@@ -507,7 +553,6 @@ def detect_button(button: dict, page_url: str) -> dict:
 
         destination_types = classify_destination(destination)
 
-        page_domain = get_domain(page_url)
         destination_domain = get_domain(destination)
 
         cross_domain = (
@@ -547,6 +592,9 @@ def detect_button(button: dict, page_url: str) -> dict:
 
         if has_suspicious_redirect_parameters(destination):
             signals.append("redirect_parameter")
+
+        if redirect_value_points_externally(destination, page_domain):
+            signals.append("redirect_parameter_points_externally")
 
         # Intent mismatch
 
@@ -693,6 +741,9 @@ def detect_form(form: dict, page_url: str) -> dict:
 
     if has_suspicious_redirect_parameters(action):
         signals.append("redirect_parameter")
+
+    if redirect_value_points_externally(action, page_domain):
+        signals.append("redirect_parameter_points_externally")
 
     # --------------------------------------------------------
     # INPUT ANALYSIS
