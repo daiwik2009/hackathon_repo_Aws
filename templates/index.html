@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vanguard — AI Bodyguard</title>
+    <style>
+        :root {
+            --bg: #070a0f;
+            --panel: #0d121a;
+            --panel2: #111823;
+            --border: #202a38;
+            --text: #e7edf5;
+            --muted: #8491a3;
+            --accent: #74a7ff;
+            --green: #4ade80;
+            --yellow: #facc15;
+            --red: #fb7185;
+            --sidebar: 260px;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: radial-gradient(circle at top, #101827 0, var(--bg) 42%);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+        }
+        button, input { font: inherit; }
+
+        .auth {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+        .auth-card {
+            width: min(430px, 100%);
+            background: rgba(13,18,26,.96);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 32px;
+            box-shadow: 0 24px 80px rgba(0,0,0,.35);
+        }
+        .brand { font-size: 24px; font-weight: 800; letter-spacing: -.04em; }
+        .brand span { color: var(--accent); }
+        .subtitle { color: var(--muted); margin: 8px 0 26px; }
+        .field { margin: 14px 0; }
+        .field label { display: block; color: var(--muted); font-size: 13px; margin-bottom: 7px; }
+        .field input {
+            width: 100%;
+            padding: 12px 13px;
+            color: var(--text);
+            background: #080d14;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            outline: none;
+        }
+        .field input:focus { border-color: var(--accent); }
+        .primary {
+            width: 100%;
+            border: 0;
+            border-radius: 10px;
+            padding: 12px 14px;
+            color: #06101f;
+            background: var(--accent);
+            font-weight: 750;
+            cursor: pointer;
+        }
+        .switch { text-align: center; color: var(--muted); margin-top: 18px; font-size: 14px; }
+        a { color: var(--accent); text-decoration: none; }
+        .flash { color: var(--red); background: rgba(251,113,133,.08); padding: 10px; border-radius: 9px; margin-bottom: 12px; }
+
+        .app {
+            height: 100vh;
+            display: grid;
+            grid-template-columns: var(--sidebar) minmax(0, 1fr) var(--sidebar);
+            overflow: hidden;
+        }
+        .left, .right {
+            background: rgba(9,13,19,.95);
+            border-color: var(--border);
+            min-width: 0;
+            overflow: hidden;
+        }
+        .left { border-right: 1px solid var(--border); }
+        .right { border-left: 1px solid var(--border); }
+        .side-head {
+            height: 64px;
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo { font-weight: 800; letter-spacing: -.03em; }
+        .logo span { color: var(--accent); }
+        .new-chat {
+            width: 34px;
+            height: 34px;
+            border: 1px solid var(--border);
+            color: var(--text);
+            background: var(--panel2);
+            border-radius: 9px;
+            cursor: pointer;
+        }
+        .chat-list, .scan-list {
+            padding: 10px;
+            overflow-y: auto;
+            height: calc(100vh - 64px);
+        }
+        .chat-item {
+            padding: 11px 12px;
+            border-radius: 9px;
+            color: #c5ceda;
+            cursor: pointer;
+            margin-bottom: 4px;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .chat-item:hover, .chat-item.active { background: #151e2a; color: white; }
+        .scan-card {
+            border: 1px solid var(--border);
+            background: var(--panel);
+            border-radius: 11px;
+            padding: 11px;
+            margin-bottom: 9px;
+        }
+        .scan-url {
+            font-size: 12px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #d6deea;
+            margin-bottom: 8px;
+        }
+        .scan-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+        .pill {
+            display: inline-flex;
+            border-radius: 999px;
+            padding: 3px 7px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .04em;
+        }
+        .ALLOW { color: var(--green); background: rgba(74,222,128,.10); }
+        .WARN { color: var(--yellow); background: rgba(250,204,21,.10); }
+        .BLOCK { color: var(--red); background: rgba(251,113,133,.10); }
+        .empty { color: var(--muted); font-size: 12px; line-height: 1.5; padding: 10px; }
+
+        .main {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            background: rgba(7,10,15,.82);
+        }
+        .topbar {
+            height: 64px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 18px;
+        }
+        .chat-title { font-weight: 700; }
+        .user-area { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+        .logout { border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 30px clamp(16px, 7vw, 100px);
+        }
+        .welcome { max-width: 700px; margin: 10vh auto; text-align: center; }
+        .welcome h1 { font-size: clamp(28px, 4vw, 46px); margin: 0 0 10px; letter-spacing: -.05em; }
+        .welcome p { color: var(--muted); line-height: 1.6; }
+        .message {
+            max-width: 820px;
+            margin: 0 auto 20px;
+            display: flex;
+        }
+        .message.user { justify-content: flex-end; }
+        .bubble {
+            max-width: 80%;
+            padding: 12px 15px;
+            border-radius: 14px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            font-size: 14px;
+        }
+        .user .bubble { background: #172235; border: 1px solid #243653; }
+        .assistant .bubble { background: #0d131c; border: 1px solid var(--border); }
+
+        .composer {
+            border-top: 1px solid var(--border);
+            padding: 14px clamp(16px, 7vw, 100px) 18px;
+        }
+        .composer-box {
+            max-width: 820px;
+            margin: auto;
+            display: flex;
+            gap: 9px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 8px;
+        }
+        .composer input {
+            min-width: 0;
+            flex: 1;
+            background: transparent;
+            border: 0;
+            outline: none;
+            color: var(--text);
+            padding: 8px;
+        }
+        .send {
+            border: 0;
+            border-radius: 9px;
+            padding: 9px 14px;
+            background: var(--accent);
+            color: #06101f;
+            font-weight: 750;
+            cursor: pointer;
+        }
+        .send:disabled { opacity: .5; cursor: wait; }
+
+        .searching {
+            display: none;
+            max-width: 820px;
+            margin: 0 auto 12px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .searching.show { display: block; }
+        .dot {
+            display: inline-block;
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: var(--accent);
+            margin-right: 7px;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse { 50% { opacity: .25; } }
+
+        @media (max-width: 1050px) {
+            .app { grid-template-columns: 220px minmax(0,1fr); }
+            .right { display: none; }
+        }
+        @media (max-width: 700px) {
+            .app { grid-template-columns: 1fr; }
+            .left { display: none; }
+            .messages { padding: 20px 14px; }
+            .composer { padding: 12px 14px; }
+        }
+    </style>
+</head>
+<body>
+{% if not current_user %}
+<div class="auth">
+    <div class="auth-card">
+        <div class="brand">VAN<span>GUARD</span></div>
+        <div class="subtitle">AI Bodyguard for safer web-agent interactions.</div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="flash">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        {% if auth_mode == "signup" %}
+        <form method="post" action="{{ url_for('signup_post') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="field"><label>Username</label><input name="username" required minlength="3" maxlength="64"></div>
+            <div class="field"><label>Password</label><input name="password" type="password" required minlength="8"></div>
+            <button class="primary">Create account</button>
+        </form>
+        <div class="switch">Already have an account? <a href="{{ url_for('login') }}">Sign in</a></div>
+        {% else %}
+        <form method="post" action="{{ url_for('login_post') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="field"><label>Username</label><input name="username" required></div>
+            <div class="field"><label>Password</label><input name="password" type="password" required></div>
+            <button class="primary">Sign in</button>
+        </form>
+        <div class="switch">New to Vanguard? <a href="{{ url_for('signup') }}">Create an account</a></div>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<div class="app">
+    <aside class="left">
+        <div class="side-head">
+            <div class="logo">VAN<span>GUARD</span></div>
+            <button class="new-chat" onclick="newChat()" title="New chat">+</button>
+        </div>
+        <div class="chat-list" id="chatList">
+            {% for chat in chats %}
+                <div class="chat-item" data-chat-id="{{ chat.id }}" onclick="loadChat({{ chat.id }})">{{ chat.title }}</div>
+            {% else %}
+                <div class="empty">No chats yet. Start a new conversation.</div>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="topbar">
+            <div class="chat-title" id="chatTitle">New chat</div>
+            <div class="user-area">
+                <span>{{ current_user.username }}</span>
+                <form method="post" action="{{ url_for('logout') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <button class="logout">Log out</button>
+                </form>
+            </div>
+        </header>
+
+        <section class="messages" id="messages">
+            <div class="welcome" id="welcome">
+                <h1>Your web, guarded.</h1>
+                <p>Ask Vanguard to investigate a website or paste a URL. The Bodyguard pipeline will scan pages and expose risk, confidence and reasons in the security panel.</p>
+            </div>
+        </section>
+
+        <div class="searching" id="searching"><span class="dot"></span>Vanguard is scanning and analysing pages…</div>
+
+        <footer class="composer">
+            <form class="composer-box" id="messageForm">
+                <input id="messageInput" autocomplete="off" placeholder="Ask Vanguard or paste a URL…" />
+                <button class="send" id="sendButton">Send</button>
+            </form>
+        </footer>
+    </main>
+
+    <aside class="right">
+        <div class="side-head"><div>Security monitor</div></div>
+        <div class="scan-list" id="scanList">
+            <div class="empty">Scanned pages will appear here during searches, with their decision, risk score, confidence and reason.</div>
+        </div>
+    </aside>
+</div>
+
+<script>
+const csrfToken = {{ csrf_token|tojson }};
+let activeChatId = null;
+
+async function api(url, options = {}) {
+    options.headers = Object.assign(
+        {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
+        options.headers || {}
+    );
+    const response = await fetch(url, options);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Request failed');
+    return data;
+}
+
+function addMessage(role, text) {
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
+
+    const wrap = document.createElement('div');
+    wrap.className = 'message ' + role;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    document.getElementById('messages').appendChild(wrap);
+    document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+}
+
+function renderScans(scans) {
+    const list = document.getElementById('scanList');
+    list.innerHTML = '';
+
+    if (!scans || !scans.length) {
+        list.innerHTML = '<div class="empty">No pages scanned in this chat yet.</div>';
+        return;
+    }
+
+    scans.forEach(scan => {
+        const decision = (scan.decision || 'WARN').toUpperCase();
+        const card = document.createElement('div');
+        card.className = 'scan-card';
+
+        const score = Number(scan.risk_score ?? 0);
+        const confidence = scan.confidence == null ? '—' : String(scan.confidence);
+
+        card.innerHTML = `
+            <div class="scan-url" title="${escapeHtml(scan.url)}">${escapeHtml(scan.url)}</div>
+            <div class="scan-row">
+                <span class="pill ${decision}">${escapeHtml(decision)}</span>
+                <span>Risk ${escapeHtml(score)}</span>
+            </div>
+            <div class="scan-row" style="margin-top:7px;color:#8491a3">
+                <span>Confidence</span><span>${escapeHtml(confidence)}</span>
+            </div>
+            <div style="margin-top:8px;color:#8491a3;font-size:11px;line-height:1.45">
+                ${escapeHtml(scan.reason || 'No brief reason returned.')}
+            </div>
+        `;
+        list.appendChild(card);
+    });
+}
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;'
+    }[c]));
+}
+
+function renderChats(chats) {
+    const list = document.getElementById('chatList');
+    list.innerHTML = '';
+    chats.forEach(chat => {
+        const item = document.createElement('div');
+        item.className = 'chat-item' + (chat.id === activeChatId ? ' active' : '');
+        item.dataset.chatId = chat.id;
+        item.textContent = chat.title;
+        item.onclick = () => loadChat(chat.id);
+        list.appendChild(item);
+    });
+}
+
+async function refreshChats() {
+    // The main page already has the list. After sending, reloading is unnecessary:
+    // we only need to refresh the small sidebar by reading the current document.
+    // This endpoint isn't required for functionality.
+}
+
+async function newChat() {
+    const data = await api('/api/chats', {
+        method: 'POST',
+        body: JSON.stringify({title: 'New chat'})
+    });
+    activeChatId = data.chat_id;
+    document.getElementById('chatTitle').textContent = data.title;
+    document.getElementById('messages').innerHTML = `
+        <div class="welcome" id="welcome">
+            <h1>Your web, guarded.</h1>
+            <p>Ask Vanguard to investigate a website or paste a URL.</p>
+        </div>`;
+    renderScans([]);
+    window.location.reload();
+}
+
+async function loadChat(chatId) {
+    const data = await api('/api/chats/' + chatId);
+    activeChatId = chatId;
+    document.getElementById('chatTitle').textContent = data.chat.title;
+
+    const messages = document.getElementById('messages');
+    messages.innerHTML = '';
+    data.messages.forEach(m => addMessage(m.role === 'user' ? 'user' : 'assistant', m.content));
+    renderScans(data.scans);
+
+    document.querySelectorAll('.chat-item').forEach(item => {
+        item.classList.toggle('active', Number(item.dataset.chatId) === chatId);
+    });
+}
+
+document.getElementById('messageForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const input = document.getElementById('messageInput');
+    const button = document.getElementById('sendButton');
+    const searching = document.getElementById('searching');
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    if (!activeChatId) {
+        const created = await api('/api/chats', {
+            method: 'POST',
+            body: JSON.stringify({title: 'New chat'})
+        });
+        activeChatId = created.chat_id;
+    }
+
+    addMessage('user', message);
+    input.value = '';
+    button.disabled = true;
+    searching.classList.add('show');
+
+    try {
+        const data = await api('/api/chats/' + activeChatId + '/messages', {
+            method: 'POST',
+            body: JSON.stringify({message})
+        });
+
+        addMessage('assistant', data.answer);
+        renderScans(data.scans);
+        document.getElementById('chatTitle').textContent =
+            message.length > 60 ? message.slice(0, 60) + '…' : message;
+
+        // Keep the multiple-chat sidebar synchronized.
+        setTimeout(() => window.location.reload(), 250);
+    } catch (error) {
+        addMessage('assistant', 'Vanguard error: ' + error.message);
+    } finally {
+        button.disabled = false;
+        searching.classList.remove('show');
+        input.focus();
+    }
+});
+</script>
+{% endif %}
+</body>
+</html>
