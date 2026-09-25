@@ -366,9 +366,9 @@ def run_explorer(message, chat_id):
     db.close()
 
     # Preferred explorer interface.
-    if explorer and hasattr(explorer, "ask_bodyguard"):
+    if explorer and hasattr(explorer, "explore"):
         try:
-            answer = explorer.ask_bodyguard(message)
+            answer = explorer.explore(message)
             if isinstance(answer, dict):
                 answer_text = (
                     answer.get("response")
@@ -406,7 +406,7 @@ def run_explorer(message, chat_id):
     return (
         "I could not reach the AI searcher yet. The Flask application is running, "
         "and direct URL scanning is available. Check that AI_Searcher/explorer1.py "
-        "is importable and exposes ask_bodyguard(message)."
+        "is importable and exposes explore(query)."
     ), scans
 
 
