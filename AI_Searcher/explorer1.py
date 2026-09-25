@@ -15,18 +15,33 @@ BODYGUARD_URL = os.getenv(
     "http://127.0.0.1:5000"
 )
 
-def ask_bodyguard(url):
+def ask_bodyguard(url, scan_callback=None, depth=1):
     """Ask Bodyguard to inspect a URL."""
-    response = requests.post(
-        f"{BODYGUARD_URL}/scan",
-        json={"url": url},
-        timeout=30
-    )
-    response.raise_for_status()
-    return response.json()
+    if scan_callback:
+        try:
+            scan_callback(url, {"status": "scanning", "url": url}, depth, "scanning")
+        except Exception:
+            pass
+
+    try:
+        response = requests.post(
+            f"{BODYGUARD_URL}/scan",
+            json={"url": url},
+            timeout=30
+        )
+        response.raise_for_status()
+        result = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        result = {"status": "error", "url": url, "error": str(exc)}
+    if scan_callback:
+        try:
+            scan_callback(url, result, depth, "completed")
+        except Exception:
+            pass
+    return result
 
 
-def explore(query):
+def explore(query, scan_callback=None):
     instructions = """
 You are Explorer1, an AI web explorer.
 
@@ -83,7 +98,10 @@ has permitted the relevant action.
         {"role": "user", "content": query}
     ]
 
+    exploration_depth = 0
+
     while True:
+        exploration_depth += 1
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -93,7 +111,7 @@ has permitted the relevant action.
         response_message = response.choices[0].message
         
         # FIX 1: Append response_message directly as a dict or handle tool_calls explicitly
-        messages.append(response_message)
+        messages.append(response_message.model_dump(exclude_none=True))
 
         tool_calls = response_message.tool_calls
 
@@ -106,12 +124,22 @@ has permitted the relevant action.
                 url = arguments.get("url")
 
                 try:
-                    result = ask_bodyguard(url)
-                except requests.RequestException as e:
+                    result = ask_bodyguard(
+                        url,
+                        scan_callback=scan_callback,
+                        depth=exploration_depth,
+                    )
+                except Exception as e:
                     result = {
                         "status": "error",
+                        "url": url,
                         "error": str(e)
                     }
+                    if scan_callback:
+                        try:
+                            scan_callback(url, result, exploration_depth, "completed")
+                        except Exception:
+                            pass
 
                 # FIX 2: Ensure tool_call_id uses the correct attribute
                 messages.append({

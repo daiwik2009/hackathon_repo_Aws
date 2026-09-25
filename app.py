@@ -3,6 +3,9 @@ import os
 import re
 import secrets
 import sqlite3
+import threading
+import uuid
+import json
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlparse
@@ -234,9 +237,17 @@ def scan_url(url):
         # Try common confidence fields without changing the Bodyguard result.
         confidence = (
             evaluated.get("confidence")
-            or page.get("confidence")
-            or analysis.get("confidence")
+            if evaluated.get("confidence") is not None
+            else page.get("confidence")
+            if page.get("confidence") is not None
+            else analysis.get("confidence")
         )
+
+        # The contextual AI analyser has an explicit confidence field.
+        # Use it when that layer ran; otherwise preserve the deterministic
+        # scanner's truth instead of inventing a confidence value.
+        if confidence is None and isinstance(ai_review, dict):
+            confidence = ai_review.get("confidence")
 
         reason_text = make_reason(findings, decision)
 
@@ -315,99 +326,213 @@ def extract_urls(text):
     return clean
 
 
-def run_explorer(message, chat_id):
-    """
-    Connect to the project's AI_Searcher/explorer1.py without creating
-    another Flask application.
+# ---------------------------------------------------------------------------
+# Explorer jobs / live scan progress
+# ---------------------------------------------------------------------------
 
-    Supported layouts:
-      AI_Searcher/explorer1.py
-      Explorer/explorer1.py
+EXPLORER_JOBS = {}
+EXPLORER_JOBS_LOCK = threading.Lock()
 
-    If explorer1 exposes ask_bodyguard(message), it is used for the
-    natural-language response. URL scanning still goes through this app's
-    /scan pipeline so the same security decision is used everywhere.
-    """
-    explorer = None
-    import_error = None
 
-    for module_name in ("AI_Searcher.explorer1", "Explorer.explorer1"):
-        try:
-            explorer = __import__(module_name, fromlist=["*"])
-            break
-        except Exception as exc:
-            import_error = exc
+def _new_job(chat_id, message):
+    job_id = uuid.uuid4().hex
+    with EXPLORER_JOBS_LOCK:
+        EXPLORER_JOBS[job_id] = {
+            "job_id": job_id,
+            "chat_id": chat_id,
+            "message": message,
+            "status": "running",
+            "stage": "Starting Vanguard scan…",
+            "scans": [],
+            "scan_ids": [],
+            "answer": None,
+            "error": None,
+        }
+    return job_id
 
-    urls = extract_urls(message)
-    scans = [scan_url(url) for url in urls]
 
-    # Persist scans so the sidebars remain available in chat history.
+def _update_job(job_id, **updates):
+    with EXPLORER_JOBS_LOCK:
+        job = EXPLORER_JOBS.get(job_id)
+        if job:
+            job.update(updates)
+            return dict(job)
+    return None
+
+
+def _get_job(job_id):
+    with EXPLORER_JOBS_LOCK:
+        job = EXPLORER_JOBS.get(job_id)
+        return dict(job) if job else None
+
+
+def _persist_live_scan(chat_id, result, url_hint=None):
+    """Persist one completed scan and return its database id."""
+    url = result.get("url") or url_hint or ""
+    if not url:
+        return None
+
+    if result.get("status") != "success":
+        return None
+
+    security = result.get("security") or {}
     db = get_db()
-    for result in scans:
-        if result.get("status") == "success":
-            db.execute(
-                """
-                INSERT INTO scan_results
-                (chat_id, message_id, url, decision, risk_score,
-                 confidence, reason, details_json)
-                VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    chat_id,
-                    result["url"],
-                    result["security"].get("decision"),
-                    result["security"].get("risk_score", 0),
-                    result["security"].get("confidence"),
-                    result.get("reason"),
-                    __import__("json").dumps(result, default=str),
-                ),
-            )
+    cursor = db.execute(
+        """
+        INSERT INTO scan_results
+        (chat_id, message_id, url, decision, risk_score,
+         confidence, reason, details_json)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            chat_id,
+            url,
+            security.get("decision"),
+            security.get("risk_score", 0),
+            security.get("confidence"),
+            result.get("reason"),
+            json.dumps(result, default=str),
+        ),
+    )
     db.commit()
+    scan_id = cursor.lastrowid
     db.close()
+    return scan_id
 
-    # Preferred explorer interface.
-    if explorer and hasattr(explorer, "explore"):
-        try:
-            answer = explorer.explore(message)
-            if isinstance(answer, dict):
+
+def _run_explorer_job(job_id, message, chat_id):
+    scans = []
+    scan_ids = []
+    seen_urls = set()
+
+    def record_scan(url, result, depth=1, stage="completed"):
+        actual_url = (result or {}).get("url") or url or ""
+        if actual_url and stage == "scanning":
+            _update_job(
+                job_id,
+                stage=f"Deep scanning page {len(scans) + 1}: {actual_url}",
+            )
+            return
+
+        if not result:
+            return
+
+        if actual_url in seen_urls and stage == "completed":
+            return
+        if actual_url:
+            seen_urls.add(actual_url)
+
+        scan_id = _persist_live_scan(chat_id, result, url)
+        security = result.get("security") or {}
+        scan = {
+            "url": actual_url,
+            "decision": security.get("decision", "WARN"),
+            "risk_score": security.get("risk_score", 0),
+            "confidence": security.get("confidence"),
+            "reason": result.get("reason") or result.get("message") or result.get("error"),
+            "status": result.get("status", "error"),
+            "depth": depth,
+            "stage": stage,
+        }
+        scans.append(scan)
+        if scan_id:
+            scan_ids.append(scan_id)
+
+        _update_job(
+            job_id,
+            scans=list(scans),
+            scan_ids=list(scan_ids),
+            stage=f"Completed scan {len(scans)} — {scan['decision']} — {actual_url}",
+        )
+
+    try:
+        _update_job(job_id, stage="Connecting to Explorer1…")
+        explorer = None
+        import_error = None
+        for module_name in ("AI_Searcher.explorer1", "Explorer.explorer1"):
+            try:
+                explorer = __import__(module_name, fromlist=["*"])
+                break
+            except Exception as exc:
+                import_error = exc
+
+        # Direct URLs are scanned immediately and appear in the monitor one by one.
+        urls = extract_urls(message)
+        for index, url in enumerate(urls, start=1):
+            record_scan(url, {"url": url}, depth=1, stage="scanning")
+            _update_job(job_id, stage=f"Deep scanning page {index}: {url}")
+            result = scan_url(url)
+            record_scan(url, result, depth=1, stage="completed")
+
+        answer_text = None
+
+        if explorer and hasattr(explorer, "explore"):
+            _update_job(job_id, stage="Explorer1 is searching through guarded pages…")
+            answer_text = explorer.explore(message, scan_callback=record_scan)
+        elif explorer and hasattr(explorer, "ask_bodyguard"):
+            # Compatibility with older explorer modules.
+            answer = explorer.ask_bodyguard(message)
+            answer_text = (
+                answer.get("response") or answer.get("answer") or answer.get("message")
+                if isinstance(answer, dict) else str(answer)
+            )
+
+        if not answer_text:
+            if scans:
+                lines = [
+                    f"{x['url']} — {x['decision']} (risk {x['risk_score']}) — {x['reason']}"
+                    for x in scans
+                ]
                 answer_text = (
-                    answer.get("response")
-                    or answer.get("answer")
-                    or answer.get("message")
-                    or str(answer)
+                    "I scanned the URL(s) through Vanguard's Bodyguard pipeline:\n\n"
+                    + "\n".join(lines)
+                )
+            elif import_error:
+                logger.warning("Could not import explorer1.py: %s", import_error)
+                answer_text = (
+                    "I could not reach the AI searcher yet. The Flask application is running, "
+                    "and direct URL scanning is available. Check that AI_Searcher/explorer1.py "
+                    "is importable and exposes explore(query)."
                 )
             else:
-                answer_text = str(answer)
+                answer_text = "Vanguard completed the request without finding a URL to scan."
 
-            return answer_text, scans
-        except Exception as exc:
-            logger.exception("explorer1.ask_bodyguard failed: %s", exc)
+        db = get_db()
+        assistant_message = db.execute(
+            "INSERT INTO messages (chat_id, role, content) VALUES (?, 'assistant', ?)",
+            (chat_id, str(answer_text)),
+        )
+        assistant_message_id = assistant_message.lastrowid
+        if scan_ids:
+            placeholders = ",".join("?" for _ in scan_ids)
+            db.execute(
+                f"UPDATE scan_results SET message_id = ? WHERE chat_id = ? AND id IN ({placeholders})",
+                [assistant_message_id, chat_id, *scan_ids],
+            )
+        db.execute(
+            "UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (chat_id,),
+        )
+        db.commit()
+        db.close()
 
-    # A small, safe fallback if explorer1 has a different interface.
-    if scans:
-        lines = []
-        for result in scans:
-            if result.get("status") == "success":
-                sec = result["security"]
-                lines.append(
-                    f"{result['url']} — {sec.get('decision', 'WARN')} "
-                    f"(risk {sec.get('risk_score', 0)}) — {result.get('reason')}"
-                )
-            else:
-                lines.append(f"{result['url']} — {result.get('message', 'Scan failed')}")
-        return (
-            "I scanned the URL(s) through Vanguard's Bodyguard pipeline:\n\n"
-            + "\n".join(lines)
-        ), scans
-
-    if import_error:
-        logger.warning("Could not import explorer1.py: %s", import_error)
-
-    return (
-        "I could not reach the AI searcher yet. The Flask application is running, "
-        "and direct URL scanning is available. Check that AI_Searcher/explorer1.py "
-        "is importable and exposes explore(query)."
-    ), scans
+        _update_job(
+            job_id,
+            status="completed",
+            stage="Scan complete",
+            scans=list(scans),
+            scan_ids=list(scan_ids),
+            answer=str(answer_text),
+            assistant_message_id=assistant_message_id,
+        )
+    except Exception as exc:
+        logger.exception("Explorer job failed: %s", exc)
+        _update_job(
+            job_id,
+            status="error",
+            stage="Scan failed",
+            error=str(exc),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +725,6 @@ def send_message(chat_id):
     )
     user_message_id = user_message.lastrowid
 
-    # Automatically name a fresh chat from the first message.
     if chat["title"] == "New chat":
         title = content[:60] + ("…" if len(content) > 60 else "")
         db.execute(
@@ -615,44 +739,34 @@ def send_message(chat_id):
     db.commit()
     db.close()
 
-    answer, scans = run_explorer(content, chat_id)
-
-    db = get_db()
-    assistant_message = db.execute(
-        "INSERT INTO messages (chat_id, role, content) VALUES (?, 'assistant', ?)",
-        (chat_id, answer),
+    job_id = _new_job(chat_id, content)
+    thread = threading.Thread(
+        target=_run_explorer_job,
+        args=(job_id, content, chat_id),
+        daemon=True,
     )
-    assistant_message_id = assistant_message.lastrowid
-
-    # Associate newly-created scan rows with the assistant message.
-    if scans:
-        db.execute(
-            """
-            UPDATE scan_results
-            SET message_id = ?
-            WHERE chat_id = ? AND message_id IS NULL
-              AND id > COALESCE(
-                  (SELECT MAX(id) FROM scan_results
-                   WHERE chat_id = ? AND message_id IS NOT NULL), 0
-              )
-            """,
-            (assistant_message_id, chat_id, chat_id),
-        )
-
-    db.execute(
-        "UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (chat_id,),
-    )
-    db.commit()
-    db.close()
+    thread.start()
 
     return jsonify({
-        "status": "success",
+        "status": "running",
+        "job_id": job_id,
+        "chat_id": chat_id,
         "user_message_id": user_message_id,
-        "assistant_message_id": assistant_message_id,
-        "answer": answer,
-        "scans": scans,
     })
+
+
+@app.get("/api/jobs/<job_id>")
+@login_required
+def explorer_job_status(job_id):
+    job = _get_job(job_id)
+    if not job:
+        return jsonify({"status": "error", "message": "Job not found"}), 404
+
+    chat = owned_chat(job["chat_id"])
+    if not chat:
+        return jsonify({"status": "error", "message": "Job not found"}), 404
+
+    return jsonify(job)
 
 
 # ---------------------------------------------------------------------------

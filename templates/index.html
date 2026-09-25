@@ -1,510 +1,115 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Vanguard — AI Bodyguard</title>
-    <style>
-        :root {
-            --bg: #070a0f;
-            --panel: #0d121a;
-            --panel2: #111823;
-            --border: #202a38;
-            --text: #e7edf5;
-            --muted: #8491a3;
-            --accent: #74a7ff;
-            --green: #4ade80;
-            --yellow: #facc15;
-            --red: #fb7185;
-            --sidebar: 260px;
-        }
-
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            min-height: 100vh;
-            background: radial-gradient(circle at top, #101827 0, var(--bg) 42%);
-            color: var(--text);
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
-        }
-        button, input { font: inherit; }
-
-        .auth {
-            min-height: 100vh;
-            display: grid;
-            place-items: center;
-            padding: 24px;
-        }
-        .auth-card {
-            width: min(430px, 100%);
-            background: rgba(13,18,26,.96);
-            border: 1px solid var(--border);
-            border-radius: 18px;
-            padding: 32px;
-            box-shadow: 0 24px 80px rgba(0,0,0,.35);
-        }
-        .brand { font-size: 24px; font-weight: 800; letter-spacing: -.04em; }
-        .brand span { color: var(--accent); }
-        .subtitle { color: var(--muted); margin: 8px 0 26px; }
-        .field { margin: 14px 0; }
-        .field label { display: block; color: var(--muted); font-size: 13px; margin-bottom: 7px; }
-        .field input {
-            width: 100%;
-            padding: 12px 13px;
-            color: var(--text);
-            background: #080d14;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            outline: none;
-        }
-        .field input:focus { border-color: var(--accent); }
-        .primary {
-            width: 100%;
-            border: 0;
-            border-radius: 10px;
-            padding: 12px 14px;
-            color: #06101f;
-            background: var(--accent);
-            font-weight: 750;
-            cursor: pointer;
-        }
-        .switch { text-align: center; color: var(--muted); margin-top: 18px; font-size: 14px; }
-        a { color: var(--accent); text-decoration: none; }
-        .flash { color: var(--red); background: rgba(251,113,133,.08); padding: 10px; border-radius: 9px; margin-bottom: 12px; }
-
-        .app {
-            height: 100vh;
-            display: grid;
-            grid-template-columns: var(--sidebar) minmax(0, 1fr) var(--sidebar);
-            overflow: hidden;
-        }
-        .left, .right {
-            background: rgba(9,13,19,.95);
-            border-color: var(--border);
-            min-width: 0;
-            overflow: hidden;
-        }
-        .left { border-right: 1px solid var(--border); }
-        .right { border-left: 1px solid var(--border); }
-        .side-head {
-            height: 64px;
-            padding: 16px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .logo { font-weight: 800; letter-spacing: -.03em; }
-        .logo span { color: var(--accent); }
-        .new-chat {
-            width: 34px;
-            height: 34px;
-            border: 1px solid var(--border);
-            color: var(--text);
-            background: var(--panel2);
-            border-radius: 9px;
-            cursor: pointer;
-        }
-        .chat-list, .scan-list {
-            padding: 10px;
-            overflow-y: auto;
-            height: calc(100vh - 64px);
-        }
-        .chat-item {
-            padding: 11px 12px;
-            border-radius: 9px;
-            color: #c5ceda;
-            cursor: pointer;
-            margin-bottom: 4px;
-            font-size: 14px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .chat-item:hover, .chat-item.active { background: #151e2a; color: white; }
-        .scan-card {
-            border: 1px solid var(--border);
-            background: var(--panel);
-            border-radius: 11px;
-            padding: 11px;
-            margin-bottom: 9px;
-        }
-        .scan-url {
-            font-size: 12px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            color: #d6deea;
-            margin-bottom: 8px;
-        }
-        .scan-row { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
-        .pill {
-            display: inline-flex;
-            border-radius: 999px;
-            padding: 3px 7px;
-            font-size: 10px;
-            font-weight: 800;
-            letter-spacing: .04em;
-        }
-        .ALLOW { color: var(--green); background: rgba(74,222,128,.10); }
-        .WARN { color: var(--yellow); background: rgba(250,204,21,.10); }
-        .BLOCK { color: var(--red); background: rgba(251,113,133,.10); }
-        .empty { color: var(--muted); font-size: 12px; line-height: 1.5; padding: 10px; }
-
-        .main {
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
-            background: rgba(7,10,15,.82);
-        }
-        .topbar {
-            height: 64px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 18px;
-        }
-        .chat-title { font-weight: 700; }
-        .user-area { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
-        .logout { border: 0; background: transparent; color: var(--muted); cursor: pointer; }
-        .messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 30px clamp(16px, 7vw, 100px);
-        }
-        .welcome { max-width: 700px; margin: 10vh auto; text-align: center; }
-        .welcome h1 { font-size: clamp(28px, 4vw, 46px); margin: 0 0 10px; letter-spacing: -.05em; }
-        .welcome p { color: var(--muted); line-height: 1.6; }
-        .message {
-            max-width: 820px;
-            margin: 0 auto 20px;
-            display: flex;
-        }
-        .message.user { justify-content: flex-end; }
-        .bubble {
-            max-width: 80%;
-            padding: 12px 15px;
-            border-radius: 14px;
-            line-height: 1.55;
-            white-space: pre-wrap;
-            font-size: 14px;
-        }
-        .user .bubble { background: #172235; border: 1px solid #243653; }
-        .assistant .bubble { background: #0d131c; border: 1px solid var(--border); }
-
-        .composer {
-            border-top: 1px solid var(--border);
-            padding: 14px clamp(16px, 7vw, 100px) 18px;
-        }
-        .composer-box {
-            max-width: 820px;
-            margin: auto;
-            display: flex;
-            gap: 9px;
-            background: var(--panel);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 8px;
-        }
-        .composer input {
-            min-width: 0;
-            flex: 1;
-            background: transparent;
-            border: 0;
-            outline: none;
-            color: var(--text);
-            padding: 8px;
-        }
-        .send {
-            border: 0;
-            border-radius: 9px;
-            padding: 9px 14px;
-            background: var(--accent);
-            color: #06101f;
-            font-weight: 750;
-            cursor: pointer;
-        }
-        .send:disabled { opacity: .5; cursor: wait; }
-
-        .searching {
-            display: none;
-            max-width: 820px;
-            margin: 0 auto 12px;
-            color: var(--muted);
-            font-size: 12px;
-        }
-        .searching.show { display: block; }
-        .dot {
-            display: inline-block;
-            width: 6px; height: 6px;
-            border-radius: 50%;
-            background: var(--accent);
-            margin-right: 7px;
-            animation: pulse 1s infinite;
-        }
-        @keyframes pulse { 50% { opacity: .25; } }
-
-        @media (max-width: 1050px) {
-            .app { grid-template-columns: 220px minmax(0,1fr); }
-            .right { display: none; }
-        }
-        @media (max-width: 700px) {
-            .app { grid-template-columns: 1fr; }
-            .left { display: none; }
-            .messages { padding: 20px 14px; }
-            .composer { padding: 12px 14px; }
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vanguard — AI Bodyguard</title>
+<style>
+:root{
+  --bg:#06090f;--panel:#0b111a;--panel2:#101824;--panel3:#151f2d;
+  --border:#1d2a3a;--border2:#26364a;--text:#edf4ff;--muted:#8290a5;
+  --accent:#72a7ff;--accent2:#9abfff;--green:#4ade80;--yellow:#facc15;--red:#fb7185;
+  --left:270px;--right:320px;
+}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden}
+body{background:radial-gradient(circle at 50% -20%,#14243b 0,#080d15 42%,#05080d 100%);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input{font:inherit}button{cursor:pointer}a{color:var(--accent);text-decoration:none}
+.auth{width:100%;height:100dvh;display:grid;place-items:center;padding:24px;overflow:auto}
+.auth-card{width:min(430px,100%);padding:34px;background:rgba(11,17,26,.94);border:1px solid var(--border);border-radius:22px;box-shadow:0 30px 100px rgba(0,0,0,.45)}
+.brand{font-size:25px;font-weight:850;letter-spacing:-.05em}.brand span,.logo span{color:var(--accent)}
+.subtitle{color:var(--muted);margin:9px 0 28px;line-height:1.5}.field{margin:15px 0}.field label{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}.field input{width:100%;padding:13px;color:var(--text);background:#070c13;border:1px solid var(--border);border-radius:11px;outline:0}.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(114,167,255,.1)}
+.primary{width:100%;border:0;border-radius:11px;padding:13px;background:var(--accent);color:#06101f;font-weight:800}.switch{text-align:center;color:var(--muted);margin-top:18px;font-size:13px}.flash{color:var(--red);background:rgba(251,113,133,.08);border:1px solid rgba(251,113,133,.18);padding:11px;border-radius:10px;margin-bottom:12px}
+.app{width:100%;height:100dvh;display:grid;grid-template-columns:var(--left) minmax(0,1fr) var(--right);overflow:hidden}
+.left,.right,.main{min-width:0;min-height:0;height:100%}.left,.right{background:rgba(7,12,19,.88);overflow:hidden}.left{border-right:1px solid var(--border)}.right{border-left:1px solid var(--border)}
+.side-head{height:68px;min-height:68px;padding:0 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}.logo{font-weight:850;letter-spacing:-.04em}.side-label{font-size:12px;font-weight:800;letter-spacing:.04em;color:#dce6f4}.new-chat{width:36px;height:36px;border:1px solid var(--border2);border-radius:10px;color:var(--text);background:linear-gradient(180deg,#172333,#101925);font-size:21px;line-height:1}.new-chat:hover{border-color:#3d5877;background:#1a293c}
+.chat-list,.scan-list{height:calc(100% - 68px);min-height:0;overflow-y:auto;overflow-x:hidden;padding:12px 10px 18px;scroll-behavior:auto;overscroll-behavior:contain}.chat-list::-webkit-scrollbar,.scan-list::-webkit-scrollbar,.messages::-webkit-scrollbar{width:7px}.chat-list::-webkit-scrollbar-thumb,.scan-list::-webkit-scrollbar-thumb,.messages::-webkit-scrollbar-thumb{background:#26364a;border-radius:20px}.chat-list::-webkit-scrollbar-track,.scan-list::-webkit-scrollbar-track,.messages::-webkit-scrollbar-track{background:transparent}
+.chat-item{position:relative;padding:12px 12px;margin:3px 0;border:1px solid transparent;border-radius:11px;color:#aeb9c8;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:.15s}.chat-item:hover{background:#101a27;color:#e7eef8;border-color:#182638}.chat-item.active{background:linear-gradient(90deg,rgba(114,167,255,.14),rgba(114,167,255,.04));border-color:rgba(114,167,255,.24);color:#fff}.chat-item.active:before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--accent)}
+.main{position:relative;display:flex;flex-direction:column;background:rgba(5,9,15,.72);overflow:hidden}.topbar{height:68px;min-height:68px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 22px;background:rgba(8,13,20,.82);backdrop-filter:blur(16px)}.title-wrap{min-width:0}.eyebrow{font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-bottom:3px}.chat-title{font-size:14px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(58vw,720px)}.user-area{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px}.logout{border:1px solid var(--border);border-radius:9px;padding:7px 10px;background:#0d151f;color:#aeb9c8}.logout:hover{color:#fff;border-color:var(--border2)}
+.messages{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:34px clamp(18px,6vw,92px) 28px;scroll-behavior:auto;overscroll-behavior:contain}.welcome{max-width:720px;margin:10vh auto 18vh;text-align:center}.welcome-icon{width:58px;height:58px;margin:0 auto 18px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(114,167,255,.2),rgba(114,167,255,.04));border:1px solid rgba(114,167,255,.24);font-size:25px}.welcome h1{font-size:clamp(30px,4vw,50px);margin:0 0 12px;letter-spacing:-.055em}.welcome p{color:var(--muted);line-height:1.7;font-size:14px}.message{max-width:900px;margin:0 auto 22px;display:flex;animation:rise .2s ease}.message.user{justify-content:flex-end}.bubble{max-width:min(82%,820px);padding:13px 16px;border-radius:16px;line-height:1.6;white-space:pre-wrap;font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.08)}.user .bubble{background:linear-gradient(135deg,#18283e,#132136);border:1px solid #2b4566}.assistant .bubble{background:#0d141e;border:1px solid var(--border)}
+@keyframes rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.searching{display:none;position:absolute;left:50%;bottom:82px;transform:translateX(-50%);z-index:20;max-width:900px;width:calc(100% - clamp(36px,12vw,184px));margin:0;color:#9eabc0;font-size:12px;align-items:center;gap:9px;pointer-events:none}.searching.show{display:flex}.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px rgba(114,167,255,.65);animation:pulse 1s infinite}@keyframes pulse{50%{opacity:.25;transform:scale(.8)}}
+.composer{flex:none;border-top:1px solid var(--border);padding:13px clamp(18px,6vw,92px) 17px;background:rgba(6,10,16,.9)}.composer-box{max-width:900px;margin:auto;display:flex;gap:9px;background:#0c141e;border:1px solid var(--border2);border-radius:15px;padding:8px;box-shadow:0 12px 35px rgba(0,0,0,.18)}.composer-box:focus-within{border-color:#3a5778;box-shadow:0 0 0 3px rgba(114,167,255,.06),0 12px 35px rgba(0,0,0,.18)}.composer input{min-width:0;flex:1;background:transparent;border:0;outline:0;color:var(--text);padding:9px}.send{border:0;border-radius:10px;padding:9px 16px;background:var(--accent);color:#06101f;font-weight:800}.send:disabled{opacity:.45;cursor:wait}
+.monitor-summary{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:10px}.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 9px rgba(74,222,128,.55)}
+.scan-card{border:1px solid var(--border);background:linear-gradient(180deg,#0d151f,#0a1119);border-radius:13px;padding:12px;margin-bottom:9px;box-shadow:0 8px 24px rgba(0,0,0,.12)}.scan-card.live{border-color:rgba(114,167,255,.3);background:linear-gradient(180deg,rgba(114,167,255,.08),#0a1119)}.scan-url{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#dbe5f2;margin-bottom:10px}.scan-row{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:11px;color:#9caabd}.pill{display:inline-flex;border-radius:999px;padding:4px 8px;font-size:9px;font-weight:850;letter-spacing:.06em}.ALLOW{color:var(--green);background:rgba(74,222,128,.1)}.WARN{color:var(--yellow);background:rgba(250,204,21,.1)}.BLOCK{color:var(--red);background:rgba(251,113,133,.1)}.SCANNING{color:var(--accent2);background:rgba(114,167,255,.1)}.scan-meta{display:grid;grid-template-columns:1fr 1fr;margin-top:10px;border-top:1px solid rgba(255,255,255,.05);padding-top:9px;gap:8px}.meta-label{display:block;color:#66758a;font-size:9px;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px}.meta-value{color:#d8e1ed;font-size:11px}.reason{margin-top:9px;color:#8491a3;font-size:10px;line-height:1.5}.progress-line{height:3px;border-radius:99px;background:#172333;overflow:hidden;margin-top:10px}.progress-line span{display:block;height:100%;width:45%;background:var(--accent);animation:progress 1.1s infinite ease-in-out}@keyframes progress{0%{transform:translateX(-120%)}100%{transform:translateX(250%)}}
+.empty{color:var(--muted);font-size:11px;line-height:1.6;padding:12px}.monitor-empty{text-align:center;padding:28px 14px}.monitor-empty strong{display:block;color:#c8d2df;font-size:12px;margin-bottom:5px}
+@media(max-width:1180px){:root{--left:230px;--right:280px}.app{grid-template-columns:var(--left) minmax(0,1fr) var(--right)}}
+@media(max-width:980px){:root{--left:225px}.app{grid-template-columns:var(--left) minmax(0,1fr)}.right{display:none}}
+@media(max-width:700px){.app{grid-template-columns:1fr}.left{display:none}.topbar{padding:0 14px}.user-area span{display:none}.messages{padding:22px 14px 24px}.composer{padding:11px 14px 14px}.searching{width:calc(100% - 28px);bottom:78px}.bubble{max-width:90%}}
+</style>
 </head>
 <body>
 {% if not current_user %}
-<div class="auth">
-    <div class="auth-card">
-        <div class="brand">VAN<span>GUARD</span></div>
-        <div class="subtitle">AI Bodyguard for safer web-agent interactions.</div>
-
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% for category, message in messages %}
-                <div class="flash">{{ message }}</div>
-            {% endfor %}
-        {% endwith %}
-
-        {% if auth_mode == "signup" %}
-        <form method="post" action="{{ url_for('signup_post') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="field"><label>Username</label><input name="username" required minlength="3" maxlength="64"></div>
-            <div class="field"><label>Password</label><input name="password" type="password" required minlength="8"></div>
-            <button class="primary">Create account</button>
-        </form>
-        <div class="switch">Already have an account? <a href="{{ url_for('login') }}">Sign in</a></div>
-        {% else %}
-        <form method="post" action="{{ url_for('login_post') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="field"><label>Username</label><input name="username" required></div>
-            <div class="field"><label>Password</label><input name="password" type="password" required></div>
-            <button class="primary">Sign in</button>
-        </form>
-        <div class="switch">New to Vanguard? <a href="{{ url_for('signup') }}">Create an account</a></div>
-        {% endif %}
-    </div>
-</div>
+<div class="auth"><div class="auth-card">
+  <div class="brand">VAN<span>GUARD</span></div>
+  <div class="subtitle">AI Bodyguard for safer web-agent interactions.</div>
+  {% with messages = get_flashed_messages(with_categories=true) %}{% for category, message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
+  {% if auth_mode == "signup" %}
+  <form method="post" action="{{ url_for('signup_post') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="field"><label>Username</label><input name="username" required minlength="3" maxlength="64"></div><div class="field"><label>Password</label><input name="password" type="password" required minlength="8"></div><button class="primary">Create account</button></form>
+  <div class="switch">Already have an account? <a href="{{ url_for('login') }}">Sign in</a></div>
+  {% else %}
+  <form method="post" action="{{ url_for('login_post') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="field"><label>Username</label><input name="username" required></div><div class="field"><label>Password</label><input name="password" type="password" required></div><button class="primary">Sign in</button></form>
+  <div class="switch">New to Vanguard? <a href="{{ url_for('signup') }}">Create an account</a></div>
+  {% endif %}
+</div></div>
 {% else %}
 <div class="app">
-    <aside class="left">
-        <div class="side-head">
-            <div class="logo">VAN<span>GUARD</span></div>
-            <button class="new-chat" onclick="newChat()" title="New chat">+</button>
-        </div>
-        <div class="chat-list" id="chatList">
-            {% for chat in chats %}
-                <div class="chat-item" data-chat-id="{{ chat.id }}" onclick="loadChat({{ chat.id }})">{{ chat.title }}</div>
-            {% else %}
-                <div class="empty">No chats yet. Start a new conversation.</div>
-            {% endfor %}
-        </div>
-    </aside>
+  <aside class="left">
+    <div class="side-head"><div class="logo">VAN<span>GUARD</span></div><button class="new-chat" id="newChatButton" title="New chat">+</button></div>
+    <div class="chat-list" id="chatList">
+      {% for chat in chats %}<div class="chat-item" data-chat-id="{{ chat.id }}">{{ chat.title }}</div>{% else %}<div class="empty">No chats yet.<br>Start a protected conversation.</div>{% endfor %}
+    </div>
+  </aside>
 
-    <main class="main">
-        <header class="topbar">
-            <div class="chat-title" id="chatTitle">New chat</div>
-            <div class="user-area">
-                <span>{{ current_user.username }}</span>
-                <form method="post" action="{{ url_for('logout') }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button class="logout">Log out</button>
-                </form>
-            </div>
-        </header>
+  <main class="main">
+    <header class="topbar"><div class="title-wrap"><div class="eyebrow">Protected conversation</div><div class="chat-title" id="chatTitle">Select a chat</div></div><div class="user-area"><span>{{ current_user.username }}</span><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="logout">Log out</button></form></div></header>
+    <section class="messages" id="messages"><div class="welcome" id="welcome"><div class="welcome-icon">🛡</div><h1>Your web, guarded.</h1><p>Choose a conversation or start a new one. Vanguard scans requested pages before Explorer1 can use them, while the security monitor tracks every guarded page.</p></div></section>
+    <div class="searching" id="searching"><span class="dot"></span><span id="searchingText">Vanguard is scanning and analysing pages…</span></div>
+    <footer class="composer"><form class="composer-box" id="messageForm"><input id="messageInput" autocomplete="off" placeholder="Ask Vanguard or paste a URL…"><button class="send" id="sendButton">Send</button></form></footer>
+  </main>
 
-        <section class="messages" id="messages">
-            <div class="welcome" id="welcome">
-                <h1>Your web, guarded.</h1>
-                <p>Ask Vanguard to investigate a website or paste a URL. The Bodyguard pipeline will scan pages and expose risk, confidence and reasons in the security panel.</p>
-            </div>
-        </section>
-
-        <div class="searching" id="searching"><span class="dot"></span>Vanguard is scanning and analysing pages…</div>
-
-        <footer class="composer">
-            <form class="composer-box" id="messageForm">
-                <input id="messageInput" autocomplete="off" placeholder="Ask Vanguard or paste a URL…" />
-                <button class="send" id="sendButton">Send</button>
-            </form>
-        </footer>
-    </main>
-
-    <aside class="right">
-        <div class="side-head"><div>Security monitor</div></div>
-        <div class="scan-list" id="scanList">
-            <div class="empty">Scanned pages will appear here during searches, with their decision, risk score, confidence and reason.</div>
-        </div>
-    </aside>
+  <aside class="right">
+    <div class="side-head"><div class="side-label">SECURITY MONITOR</div><div class="monitor-summary"><span class="live-dot"></span><span id="scanCount">0 scans</span></div></div>
+    <div class="scan-list" id="scanList"><div class="monitor-empty"><strong>No active scan</strong>Pages inspected by Vanguard will appear here with live risk, confidence, reason and exploration depth.</div></div>
+  </aside>
 </div>
-
 <script>
-const csrfToken = {{ csrf_token|tojson }};
-let activeChatId = null;
+const csrfToken={{ csrf_token|tojson }};
+let activeChatId=null;
+let activeJobId=null;
+let pollTimer=null;
+let userStartedChat=false;
 
-async function api(url, options = {}) {
-    options.headers = Object.assign(
-        {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken},
-        options.headers || {}
-    );
-    const response = await fetch(url, options);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || 'Request failed');
-    return data;
+async function api(url, options={}){
+  options.headers=Object.assign({'Content-Type':'application/json','X-CSRF-Token':csrfToken},options.headers||{});
+  const response=await fetch(url,options);
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data.message||'Request failed');
+  return data;
 }
-
-function addMessage(role, text) {
-    const welcome = document.getElementById('welcome');
-    if (welcome) welcome.remove();
-
-    const wrap = document.createElement('div');
-    wrap.className = 'message ' + role;
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.textContent = text;
-    wrap.appendChild(bubble);
-    document.getElementById('messages').appendChild(wrap);
-    document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function formatConfidence(v){if(v===null||v===undefined||v==='')return 'Not provided';const n=Number(v);if(Number.isFinite(n))return (n<=1?n*100:n).toFixed(n<=1?0:1)+'%';return String(v)}
+function formatDepth(v){return v?`Depth ${esc(v)}`:'Depth —'}
+function isNearBottom(el,threshold=90){return el.scrollHeight-el.scrollTop-el.clientHeight<=threshold}
+function scrollMessages(force=false){const el=document.getElementById('messages');if(force||isNearBottom(el))el.scrollTop=el.scrollHeight}
+function addMessage(role,text,scroll=true){const messages=document.getElementById('messages');const shouldStick=scroll&&isNearBottom(messages);const w=document.getElementById('welcome');if(w)w.remove();const wrap=document.createElement('div');wrap.className='message '+role;const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=text;wrap.appendChild(bubble);messages.appendChild(wrap);if(shouldStick)messages.scrollTop=messages.scrollHeight}
+function setActiveChatVisual(){document.querySelectorAll('.chat-item').forEach(x=>x.classList.toggle('active',Number(x.dataset.chatId)===Number(activeChatId)))}
+function upsertChatItem(id,title){let item=document.querySelector(`.chat-item[data-chat-id="${id}"]`);if(!item){const empty=document.querySelector('#chatList .empty');if(empty)empty.remove();item=document.createElement('div');item.className='chat-item';item.dataset.chatId=id;document.getElementById('chatList').prepend(item);item.addEventListener('click',()=>loadChat(id))}item.textContent=title;setActiveChatVisual()}
+function renderScans(scans=[],liveStatus=null){const list=document.getElementById('scanList');const previousTop=list.scrollTop;const wasNearBottom=list.scrollHeight-list.scrollTop-list.clientHeight<=90;list.innerHTML='';let count=scans.length;if(liveStatus?.status==='scanning')count=Math.max(count,liveStatus.scanningCount||count+1);document.getElementById('scanCount').textContent=count+' scan'+(count===1?'':'s');if(!scans.length&&!liveStatus){list.innerHTML='<div class="monitor-empty"><strong>No pages scanned</strong>Pages inspected by Vanguard will appear here with live risk, confidence, reason and exploration depth.</div>';return}
+  scans.forEach(scan=>{const decision=(scan.decision||'WARN').toUpperCase();const card=document.createElement('div');card.className='scan-card '+(scan.stage==='scanning'?'live':'');card.innerHTML=`<div class="scan-url" title="${esc(scan.url)}">${esc(scan.url||'Unknown URL')}</div><div class="scan-row"><span class="pill ${esc(decision)}">${esc(decision)}</span><span>Risk ${esc(scan.risk_score??'—')}</span></div><div class="scan-meta"><div><span class="meta-label">Confidence</span><span class="meta-value">${esc(formatConfidence(scan.confidence))}</span></div><div><span class="meta-label">Exploration</span><span class="meta-value">${formatDepth(scan.depth)}</span></div></div><div class="reason">${esc(scan.reason||'Page inspected by Vanguard.')}</div>${scan.stage==='scanning'?'<div class="progress-line"><span></span></div>':''}`;list.appendChild(card)})
+  if(liveStatus?.status==='scanning'){const card=document.createElement('div');card.className='scan-card live';card.innerHTML=`<div class="scan-row"><span class="pill SCANNING">SCANNING</span><span>LIVE</span></div><div class="reason">${esc(liveStatus.stage||'Deep scanning…')}</div><div class="progress-line"><span></span></div>`;list.appendChild(card)}
+  list.scrollTop=wasNearBottom?list.scrollHeight:previousTop;
 }
+async function loadChat(chatId){if(activeJobId&&Number(chatId)!==Number(activeChatId)){return}const data=await api('/api/chats/'+chatId);activeChatId=Number(chatId);localStorage.setItem('vanguardActiveChat',String(activeChatId));document.getElementById('chatTitle').textContent=data.chat.title;const messages=document.getElementById('messages');messages.innerHTML='';if(!data.messages.length){messages.innerHTML='<div class="welcome" id="welcome"><div class="welcome-icon">🛡</div><h1>Your web, guarded.</h1><p>Start this conversation by asking Vanguard to investigate a website.</p></div>'}else data.messages.forEach(m=>addMessage(m.role==='user'?'user':'assistant',m.content,false));renderScans(data.scans);setActiveChatVisual();messages.scrollTop=messages.scrollHeight}
+async function newChat(){if(activeJobId){return}const data=await api('/api/chats',{method:'POST',body:JSON.stringify({title:'New chat'})});activeChatId=Number(data.chat_id);localStorage.setItem('vanguardActiveChat',String(activeChatId));document.getElementById('chatTitle').textContent='New chat';document.getElementById('messages').innerHTML='<div class="welcome" id="welcome"><div class="welcome-icon">🛡</div><h1>Your web, guarded.</h1><p>Ask Vanguard to investigate a website or paste a URL.</p></div>';renderScans();upsertChatItem(activeChatId,'New chat');document.getElementById('messageInput').focus()}
+async function pollJob(){if(!activeJobId)return;try{const job=await api('/api/jobs/'+activeJobId);if(Number(job.chat_id)!==Number(activeChatId)){activeJobId=null;return}const live=job.status==='running'?{status:'scanning',stage:job.stage,scanningCount:(job.scans||[]).length+1}:null;renderScans(job.scans||[],live);document.getElementById('searchingText').textContent=job.stage||'Vanguard is scanning and analysing pages…';if(job.status==='completed'){addMessage('assistant',job.answer||'Scan complete.');document.getElementById('searching').classList.remove('show');document.getElementById('sendButton').disabled=false;document.getElementById('messageInput').focus();activeJobId=null;upsertChatItem(activeChatId,document.getElementById('chatTitle').textContent);clearInterval(pollTimer);pollTimer=null;renderScans(job.scans||[]);return}if(job.status==='error'){addMessage('assistant','Vanguard error: '+(job.error||'The scan failed.'));document.getElementById('searching').classList.remove('show');document.getElementById('sendButton').disabled=false;activeJobId=null;clearInterval(pollTimer);pollTimer=null}}
+catch(e){console.error(e)}}
 
-function renderScans(scans) {
-    const list = document.getElementById('scanList');
-    list.innerHTML = '';
+document.getElementById('newChatButton').addEventListener('click',newChat);
+document.querySelectorAll('.chat-item').forEach(item=>item.addEventListener('click',()=>loadChat(Number(item.dataset.chatId))));
+document.getElementById('messageForm').addEventListener('submit',async e=>{e.preventDefault();if(activeJobId)return;const input=document.getElementById('messageInput'),button=document.getElementById('sendButton'),message=input.value.trim();if(!message)return;if(!activeChatId){await newChat()}const chatId=activeChatId;addMessage('user',message);input.value='';button.disabled=true;document.getElementById('searching').classList.add('show');document.getElementById('searchingText').textContent='Starting Vanguard scan…';activeJobId='starting';try{const data=await api('/api/chats/'+chatId+'/messages',{method:'POST',body:JSON.stringify({message})});activeJobId=data.job_id;const title=message.length>60?message.slice(0,60)+'…':message;document.getElementById('chatTitle').textContent=title;upsertChatItem(chatId,title);renderScans([], {status:'scanning',stage:'Starting Vanguard scan…'});pollTimer=setInterval(pollJob,450);await pollJob()}catch(err){activeJobId=null;button.disabled=false;document.getElementById('searching').classList.remove('show');addMessage('assistant','Vanguard error: '+err.message);input.focus()}});
 
-    if (!scans || !scans.length) {
-        list.innerHTML = '<div class="empty">No pages scanned in this chat yet.</div>';
-        return;
-    }
-
-    scans.forEach(scan => {
-        const decision = (scan.decision || 'WARN').toUpperCase();
-        const card = document.createElement('div');
-        card.className = 'scan-card';
-
-        const score = Number(scan.risk_score ?? 0);
-        const confidence = scan.confidence == null ? '—' : String(scan.confidence);
-
-        card.innerHTML = `
-            <div class="scan-url" title="${escapeHtml(scan.url)}">${escapeHtml(scan.url)}</div>
-            <div class="scan-row">
-                <span class="pill ${decision}">${escapeHtml(decision)}</span>
-                <span>Risk ${escapeHtml(score)}</span>
-            </div>
-            <div class="scan-row" style="margin-top:7px;color:#8491a3">
-                <span>Confidence</span><span>${escapeHtml(confidence)}</span>
-            </div>
-            <div style="margin-top:8px;color:#8491a3;font-size:11px;line-height:1.45">
-                ${escapeHtml(scan.reason || 'No brief reason returned.')}
-            </div>
-        `;
-        list.appendChild(card);
-    });
-}
-
-function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, c => ({
-        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;'
-    }[c]));
-}
-
-function renderChats(chats) {
-    const list = document.getElementById('chatList');
-    list.innerHTML = '';
-    chats.forEach(chat => {
-        const item = document.createElement('div');
-        item.className = 'chat-item' + (chat.id === activeChatId ? ' active' : '');
-        item.dataset.chatId = chat.id;
-        item.textContent = chat.title;
-        item.onclick = () => loadChat(chat.id);
-        list.appendChild(item);
-    });
-}
-
-async function refreshChats() {
-    // The main page already has the list. After sending, reloading is unnecessary:
-    // we only need to refresh the small sidebar by reading the current document.
-    // This endpoint isn't required for functionality.
-}
-
-async function newChat() {
-    const data = await api('/api/chats', {
-        method: 'POST',
-        body: JSON.stringify({title: 'New chat'})
-    });
-    activeChatId = data.chat_id;
-    document.getElementById('chatTitle').textContent = data.title;
-    document.getElementById('messages').innerHTML = `
-        <div class="welcome" id="welcome">
-            <h1>Your web, guarded.</h1>
-            <p>Ask Vanguard to investigate a website or paste a URL.</p>
-        </div>`;
-    renderScans([]);
-    window.location.reload();
-}
-
-async function loadChat(chatId) {
-    const data = await api('/api/chats/' + chatId);
-    activeChatId = chatId;
-    document.getElementById('chatTitle').textContent = data.chat.title;
-
-    const messages = document.getElementById('messages');
-    messages.innerHTML = '';
-    data.messages.forEach(m => addMessage(m.role === 'user' ? 'user' : 'assistant', m.content));
-    renderScans(data.scans);
-
-    document.querySelectorAll('.chat-item').forEach(item => {
-        item.classList.toggle('active', Number(item.dataset.chatId) === chatId);
-    });
-}
-
-document.getElementById('messageForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    const input = document.getElementById('messageInput');
-    const button = document.getElementById('sendButton');
-    const searching = document.getElementById('searching');
-    const message = input.value.trim();
-
-    if (!message) return;
-
-    if (!activeChatId) {
-        const created = await api('/api/chats', {
-            method: 'POST',
-            body: JSON.stringify({title: 'New chat'})
-        });
-        activeChatId = created.chat_id;
-    }
-
-    addMessage('user', message);
-    input.value = '';
-    button.disabled = true;
-    searching.classList.add('show');
-
-    try {
-        const data = await api('/api/chats/' + activeChatId + '/messages', {
-            method: 'POST',
-            body: JSON.stringify({message})
-        });
-
-        addMessage('assistant', data.answer);
-        renderScans(data.scans);
-        document.getElementById('chatTitle').textContent =
-            message.length > 60 ? message.slice(0, 60) + '…' : message;
-
-        // Keep the multiple-chat sidebar synchronized.
-        setTimeout(() => window.location.reload(), 250);
-    } catch (error) {
-        addMessage('assistant', 'Vanguard error: ' + error.message);
-    } finally {
-        button.disabled = false;
-        searching.classList.remove('show');
-        input.focus();
-    }
-});
+(async function init(){const items=[...document.querySelectorAll('.chat-item')];const saved=Number(localStorage.getItem('vanguardActiveChat'));const available=items.map(x=>Number(x.dataset.chatId));const initial=available.includes(saved)?saved:(available[0]||null);if(initial)await loadChat(initial);else{activeChatId=null;document.getElementById('chatTitle').textContent='New chat';document.getElementById('messageInput').focus()}})();
 </script>
 {% endif %}
 </body>
